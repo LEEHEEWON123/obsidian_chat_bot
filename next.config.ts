@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: [
+    "@cursor/sdk",
+    "@xenova/transformers",
+    "onnxruntime-node",
+  ],
+  turbopack: {
+    root: process.cwd(),
+  },
 };
 
 export default nextConfig;
