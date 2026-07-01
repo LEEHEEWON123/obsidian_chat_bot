@@ -19,6 +19,8 @@ interface HealthStatus {
   chunkCount: number;
   indexedAt: string | null;
   vaultPathConfigured: boolean;
+  notionApiKeyConfigured: boolean;
+  notionPageIdsConfigured: boolean;
   cursorApiKeyConfigured: boolean;
 }
 
@@ -175,7 +177,7 @@ export function ChatPanel() {
     <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-4xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900">Obsidian Chat Bot</h1>
+          <h1 className="text-lg font-semibold text-zinc-900">Company Chat Bot</h1>
           <p className="text-sm text-zinc-500">
             {health?.chunkCount
               ? `${health.chunkCount} chunks indexed`
@@ -191,13 +193,16 @@ export function ChatPanel() {
           disabled={indexing}
           className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {indexing ? "Indexing..." : "Re-index vault"}
+          {indexing ? "Indexing..." : "Re-index"}
         </button>
       </header>
 
-      {!health?.vaultPathConfigured || !health?.cursorApiKeyConfigured ? (
+      {!health?.cursorApiKeyConfigured ||
+      (!health?.vaultPathConfigured &&
+        !(health?.notionApiKeyConfigured && health?.notionPageIdsConfigured)) ? (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-          `.env.local`에 `VAULT_PATH`와 `CURSOR_API_KEY`를 설정한 뒤 재인덱싱하세요.
+          `.env.local`에 `CURSOR_API_KEY`와 `VAULT_PATH` 또는 `NOTION_API_KEY` +
+          `NOTION_PAGE_IDS`를 설정한 뒤 재인덱싱하세요.
         </div>
       ) : null}
 
@@ -210,7 +215,7 @@ export function ChatPanel() {
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {messages.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
-            vault를 인덱싱한 뒤 회사 문서에 대해 질문해 보세요.
+            vault를 인덱싱한 뒤 회사 문서(또는 Notion)에 대해 질문해 보세요.
           </div>
         ) : null}
 

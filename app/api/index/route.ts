@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { assertConfig, getConfig } from "@/lib/config";
-import { indexVault } from "@/lib/indexer/index-vault";
+import { indexAll } from "@/lib/indexer/index-vault";
 
 export const runtime = "nodejs";
 
@@ -10,9 +10,11 @@ export async function POST() {
     const config = getConfig();
     assertConfig(config);
 
-    const result = await indexVault({
-      vaultPath: config.vaultPath,
+    const result = await indexAll({
+      vaultPath: config.vaultPath || undefined,
       pattern: config.indexInclude,
+      notionApiKey: config.notionApiKey || undefined,
+      notionPageIds: config.notionPageIds,
       dataDir: config.dataDir,
     });
 

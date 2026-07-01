@@ -1,8 +1,8 @@
 # Obsidian Chat Bot
 
-Obsidian vault 기반 RAG(Retrieval-Augmented Generation) 회사 전용 챗봇.
+Obsidian vault + **Notion** 기반 RAG 회사 전용 챗봇.
 
-로컬 `Documents` 하위 vault/레포의 마크다운을 인덱싱하고, 웹 UI에서 질문하면 관련 문서를 검색한 뒤 **Cursor SDK**로 답변을 생성합니다.
+로컬 vault/레포의 마크다운과 **Notion 페이지**를 인덱싱하고, 웹 UI에서 질문하면 관련 문서를 검색한 뒤 **Cursor SDK**로 답변을 생성합니다.
 
 > **현재 단계:** MVP 구현 (로그인 없음)  
 > **목표:** 개인 로컬 MVP → 회사 내부 배포 확장 (2차: 웍스 로그인 등)
@@ -14,7 +14,8 @@ Obsidian vault 기반 RAG(Retrieval-Augmented Generation) 회사 전용 챗봇.
 ```mermaid
 flowchart TB
     subgraph local ["로컬 (MVP)"]
-        V["Vault / Git 레포\n(.md 문서)"]
+        V["Vault (.md)"]
+        N["Notion API"]
         I["인덱서\n스캔 → 청크 → 임베딩"]
         DB["벡터 DB"]
         API["Next.js API\n/chat, /index"]
@@ -22,7 +23,9 @@ flowchart TB
         SDK["Cursor SDK"]
     end
 
-    V --> I --> DB
+    V --> I
+    N --> I
+    I --> DB
     UI --> API
     API --> DB
     API --> SDK
@@ -31,7 +34,7 @@ flowchart TB
 | 영역 | 기술 |
 |------|------|
 | Framework | Next.js (App Router) 풀스택 |
-| 지식 소스 | Obsidian vault / Git 레포 (`.md`) |
+| 지식 소스 | Obsidian vault (`.md`) + Notion 페이지 |
 | 검색 | RAG (로컬 임베딩 + JSON 벡터 스토어) |
 | LLM | Cursor SDK (Cursor 구독 크레딧) |
 | UI | 웹 채팅 |
@@ -79,7 +82,8 @@ obsidian_chat_bot/
 │   │   └── health/route.ts   # 인덱스 상태
 │   └── layout.tsx
 ├── lib/
-│   ├── indexer/              # vault 스캔, 청킹
+│   ├── indexer/              # vault + Notion 인덱싱
+│   ├── notion/               # Notion API fetch
 │   ├── embeddings/           # 로컬 임베딩
 │   ├── vector-store/         # 유사도 검색
 │   ├── rag/                  # retrieve + prompt 조립
@@ -98,7 +102,7 @@ obsidian_chat_bot/
 | Endpoint | Method | 설명 |
 |----------|--------|------|
 | `/api/chat` | POST | `{ message, history? }` → RAG 검색 → Cursor SDK 스트리밍 응답 |
-| `/api/index` | POST | vault 재스캔 → 임베딩 → 벡터 DB 갱신 |
+| `/api/index` | POST | vault + Notion 재스캔 → 임베딩 → 벡터 DB 갱신 |
 | `/api/health` | GET | 인덱스 상태 (문서 수, 마지막 인덱싱 시각) |
 
 ---
@@ -108,12 +112,28 @@ obsidian_chat_bot/
 `.env.local`에 설정합니다. **절대 Git에 커밋하지 마세요.**
 
 ```bash
-VAULT_PATH=/path/to/your/vault
+VAULT_PATH=/path/to/your/vault          # 선택 (Notion만 써도 됨)
+NOTION_API_KEY=secret_...               # 선택
+NOTION_PAGE_IDS=page-id-1,page-id-2     # 선택 (쉼표 구분)
 CURSOR_API_KEY=your_cursor_api_key
 CURSOR_MODEL=composer-2.5
 INDEX_INCLUDE=**/*.md
 RAG_TOP_K=5
 ```
+
+`VAULT_PATH` 또는 `NOTION_PAGE_IDS` 중 **하나 이상** 필요.
+
+---
+
+## Notion 연동 설정
+
+1. [Notion Integrations](https://www.notion.so/profile/integrations) → **New integration**
+2. **Internal integration** 생성 → **Secret** 복사 → `NOTION_API_KEY`
+3. Notion에서 인덱싱할 **페이지** 열기 → **⋯** → **연결** → 방금 만든 integration 추가
+4. 페이지 URL에서 ID 복사 → `NOTION_PAGE_IDS` (여러 개면 쉼표 구분)
+5. **Re-index** 클릭 → 하위 페이지·DB도 재귀 인덱싱
+
+> Notion API는 **문서 읽기만** (Notion 과금 없음). **답변 생성**은 Cursor SDK 크레딧 사용.
 
 ```bash
 cp .env.example .env.local
@@ -146,7 +166,7 @@ npm start
 ### MVP
 
 - Next.js 웹 채팅 UI
-- 로컬 vault `.md` 인덱싱
+- 로컬 vault `.md` + Notion 페이지 인덱싱
 - RAG + Cursor SDK 답변
 - 수동 재인덱싱
 - 출처(노트 경로) 표시
