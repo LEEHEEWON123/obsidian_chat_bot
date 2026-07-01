@@ -68,6 +68,28 @@ export class VectorStore {
     return this.meta;
   }
 
+  getAllChunks(): IndexedChunk[] {
+    return this.chunks;
+  }
+
+  /** All chunks from pages that match any of the given ISO dates (title or body). */
+  findChunksForDates(dates: string[]): IndexedChunk[] {
+    if (dates.length === 0) return [];
+
+    const matches = this.chunks.filter((chunk) =>
+      dates.some((date) => chunk.title.includes(date) || chunk.content.includes(date)),
+    );
+    if (matches.length === 0) return [];
+
+    const paths = new Set(matches.map((chunk) => chunk.path));
+    return this.chunks
+      .filter((chunk) => paths.has(chunk.path))
+      .sort(
+        (a, b) =>
+          a.path.localeCompare(b.path) || a.startLine - b.startLine,
+      );
+  }
+
   search(queryEmbedding: number[], topK: number): IndexedChunk[] {
     return [...this.chunks]
       .map((chunk) => ({

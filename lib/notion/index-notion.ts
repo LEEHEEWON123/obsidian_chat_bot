@@ -30,7 +30,7 @@ export async function indexNotionPages(options: {
     const pagePath = `notion://${page.pageId}`;
     const pageChunks = chunkMarkdown(
       pagePath,
-      `${page.content}\n\nSource: ${page.url}`,
+      `Page: ${page.title}\n\n${page.content}\n\nSource: ${page.url}`,
     );
 
     if (pageChunks.length === 0) continue;

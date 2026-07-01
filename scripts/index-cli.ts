@@ -10,6 +10,7 @@ for (const line of readFileSync(".env.local", "utf8").split("\n")) {
 async function main() {
   const config = getConfig();
   console.log("Indexing Notion roots:", config.notionPageIds);
+  console.log(`NOTION_MAX_PAGES=${config.notionMaxPages}`);
   const result = await indexAll({
     vaultPath: config.vaultPath || undefined,
     pattern: config.indexInclude,

@@ -4,6 +4,11 @@ export function createNotionClient(apiKey: string): Client {
   return new Client({
     auth: apiKey,
     timeoutMs: 120_000,
+    retry: {
+      maxRetries: 5,
+      initialRetryDelayMs: 2_000,
+      maxRetryDelayMs: 60_000,
+    },
   });
 }
 

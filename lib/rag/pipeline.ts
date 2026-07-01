@@ -1,4 +1,5 @@
 import { embedText } from "@/lib/embeddings/local";
+import { extractDatesFromQuery } from "@/lib/rag/query-dates";
 import { VectorStore, type IndexedChunk } from "@/lib/vector-store/store";
 
 export interface ChatMessage {
@@ -20,6 +21,14 @@ export async function retrieveRelevantChunks(options: {
   const store = await VectorStore.load(options.dataDir);
   if (store.getMeta().chunkCount === 0) {
     return [];
+  }
+
+  const dates = extractDatesFromQuery(options.query);
+  if (dates.length > 0) {
+    const dateChunks = store.findChunksForDates(dates);
+    if (dateChunks.length > 0) {
+      return dateChunks.slice(0, Math.max(options.topK, dateChunks.length));
+    }
   }
 
   const queryEmbedding = await embedText(options.query);

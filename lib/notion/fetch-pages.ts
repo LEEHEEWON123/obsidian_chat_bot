@@ -365,7 +365,7 @@ export async function fetchNotionPages(
         rememberKind(kindCache, id, "page");
         enqueueUnique(queue, visited, queued, kindCache, { id, kind: "page" });
       }
-      await sleep(200);
+      await sleep(400);
       continue;
     }
 
@@ -388,7 +388,7 @@ export async function fetchNotionPages(
 
       const doc = await fetchPageDocument(notion, item.id);
       pages.push(doc);
-      await sleep(150);
+      await sleep(400);
     } catch (error) {
       if (
         isNotionClientError(error) &&

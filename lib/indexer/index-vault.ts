@@ -70,8 +70,36 @@ export async function indexAll(options: {
       maxPages: options.notionMaxPages,
     });
     notionPageCount = notionResult.pageCount;
-    allChunks.push(...notionResult.chunks);
     warnings.push(...notionResult.warnings);
+
+    if (notionResult.pageCount === 0) {
+      const store = await VectorStore.load(options.dataDir);
+      const previousCount = store.getMeta().chunkCount;
+      warnings.push(
+        "Notion fetch returned 0 pages (rate limit or API error). Existing index kept.",
+      );
+      return {
+        fileCount,
+        notionPageCount: 0,
+        chunkCount: previousCount,
+        indexedAt: store.getMeta().indexedAt,
+        warnings,
+      };
+    }
+
+    allChunks.push(...notionResult.chunks);
+  }
+
+  if (allChunks.length === 0) {
+    const store = await VectorStore.load(options.dataDir);
+    warnings.push("No chunks produced. Existing index kept.");
+    return {
+      fileCount,
+      notionPageCount,
+      chunkCount: store.getMeta().chunkCount,
+      indexedAt: store.getMeta().indexedAt,
+      warnings,
+    };
   }
 
   const store = await VectorStore.load(options.dataDir);
