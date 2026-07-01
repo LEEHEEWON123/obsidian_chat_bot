@@ -101,6 +101,48 @@ md 추가·수정 후 `npm run index` → `npm run sync-index` 를 다시 실행
 
 ---
 
+## 인덱싱 기준
+
+### 어떤 파일이 대상인가
+
+`{VAULT_PATH}` 아래에서 **`INDEX_INCLUDE` glob**에 맞는 `.md`만 인덱싱합니다.
+
+```bash
+# 권장 — 회사 문서만
+INDEX_INCLUDE=notion/**/*.md
+
+# vault 전체 (md 수천 개 → 수 시간 걸릴 수 있음)
+INDEX_INCLUDE=**/*.md
+```
+
+**자동 제외** (`lib/indexer/scan.ts`):
+
+- `node_modules/`, `.git/`, `.obsidian/`, `.trash/`
+
+### 어떻게 잘라서 저장하나 (청킹)
+
+`lib/indexer/chunk.ts`:
+
+| 규칙 | 값 |
+|------|-----|
+| 섹션 분리 | `#` 제목 단위 |
+| 최대 청크 크기 | **800자** |
+| 겹침 (overlap) | **120자** |
+| 청크 내용 | `# 섹션제목` + 본문 조각 |
+
+파일 1개가 여러 청크가 될 수 있습니다. 검색·유사도는 **파일 단위가 아니라 청크 단위**입니다.
+
+### 무엇이 저장되나
+
+| 출력 | 내용 |
+|------|------|
+| `vectors.json` | 청크 텍스트 + 임베딩 벡터 (`all-MiniLM-L6-v2`) |
+| `graph.json` | 같은 md들의 `[[wikilink]]` 노드·엣지 |
+
+`npm run index`는 **vectors + graph** 둘 다 갱신합니다. `npm run build-graph`는 wikilink 그래프만 다시 빌드합니다.
+
+---
+
 ## Obsidian 플러그인 (Company RAG)
 
 ```bash
