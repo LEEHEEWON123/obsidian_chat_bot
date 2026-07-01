@@ -4,19 +4,21 @@ import { getConfig } from "../lib/config";
 
 for (const line of readFileSync(".env.local", "utf8").split("\n")) {
   const m = line.match(/^([^#=]+)=(.*)$/);
-  if (m) process.env[m[1].trim()] = m[2].trim();
+  if (m) {
+    const key = m[1].trim();
+    if (process.env[key] === undefined) {
+      process.env[key] = m[2].trim();
+    }
+  }
 }
 
 async function main() {
   const config = getConfig();
-  console.log("Indexing Notion roots:", config.notionPageIds);
-  console.log(`NOTION_MAX_PAGES=${config.notionMaxPages}`);
+  console.log("Indexing vault:", config.vaultPath);
+  console.log(`INDEX_INCLUDE=${config.indexInclude}`);
   const result = await indexAll({
-    vaultPath: config.vaultPath || undefined,
+    vaultPath: config.vaultPath,
     pattern: config.indexInclude,
-    notionApiKey: config.notionApiKey || undefined,
-    notionPageIds: config.notionPageIds,
-    notionMaxPages: config.notionMaxPages,
     dataDir: config.dataDir,
   });
   console.log(JSON.stringify(result, null, 2));

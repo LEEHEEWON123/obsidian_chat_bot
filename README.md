@@ -1,221 +1,168 @@
-# Company Chat Bot
+# Obsidian Chat Bot
 
-Obsidian vault + **Notion** 기반 RAG 회사 전용 챗봇.
+Obsidian vault 기반 RAG 회사 전용 챗봇.
 
-회사 문서(`.md` vault 또는 Notion)를 인덱싱하고, 웹 UI에서 질문하면 관련 내용을 검색한 뒤 **Cursor SDK**로 답변을 생성합니다.
+vault의 `.md` 파일을 인덱싱하고, **웹 UI** 또는 **Obsidian 플러그인**에서 시멘틱 검색·채팅을 사용합니다. Notion 문서는 export 후 vault `notion/` 폴더에 쌓아 RAG에 포함할 수 있습니다.
 
 > **현재 단계:** MVP (로그인 없음, 로컬 실행)  
-> **목표:** 전 직원 링크 공개 → 2차: 배포 + 웍스 SSO
+> **목표:** 전 직원 Obsidian/vault RAG → 2차: 배포 + 웍스 SSO
 
 ---
 
-## 빠른 시작 (Notion only)
+## 빠른 시작
 
 ```bash
 npm install
 cp .env.example .env.local
-# .env.local 편집 (아래 참고)
-npm run index    # 인덱싱 (CLI 권장, 2~5분)
-npm run dev
+# VAULT_PATH, CURSOR_API_KEY 설정
+
+# Notion export (선택) → Documents/notion/
+npm run notion:export
+
+# RAG 인덱싱 (notion 폴더만, 권장)
+INDEX_INCLUDE="notion/**/*.md" npm run index
+npm run build-graph    # [[위키링크]] 그래프 (빠름)
+npm run sync-index     # Obsidian 플러그인용 인덱스 복사
+
+npm run dev            # 웹 채팅 + /api/search
 ```
 
-1. `http://localhost:3000` 접속
-2. `/api/health` 또는 UI에서 `chunkCount > 0` 확인
-3. 채팅 테스트 (예: `2026-06-24 일일업무보고 알려줘`)
+| 확인 | 방법 |
+|------|------|
+| 웹 채팅 | http://localhost:3000 |
+| Obsidian 플러그인 | `obsidian-plugin/` 빌드 → vault plugins 연결 (아래) |
 
-### 필수 설정 (Notion only 예시)
+### 필수 설정
 
 ```bash
-NOTION_API_KEY=ntn_...          # Integration Secret (mcp 등)
-NOTION_PAGE_IDS=https://app.notion.com/p/{database-id}?v=...
-NOTION_MAX_PAGES=500            # DB 행 수 상한 (기본 500)
-
-CURSOR_API_KEY=crsr_...         # Cursor SDK
+VAULT_PATH=/Users/you/Documents
+CURSOR_API_KEY=crsr_...
 CURSOR_MODEL=composer-2.5
 RAG_TOP_K=5
+INDEX_INCLUDE=notion/**/*.md   # 또는 **/*.md
 ```
 
 | 변수 | 필수 | 설명 |
 |------|------|------|
-| `CURSOR_API_KEY` | ✅ | [Cursor Settings](https://cursor.com/settings) → API Keys. **답변 생성 = Cursor 구독 크레딧** (별도 API 과금 아님) |
-| `NOTION_API_KEY` | Notion 사용 시 | Integration Secret. Notion **문서 읽기**용 |
-| `NOTION_PAGE_IDS` | 택1 | **페이지 URL** 또는 **DB URL** (`?v=` 뷰 ID는 무시됨) |
-| `NOTION_MAX_PAGES` | 선택 | 인덱싱할 최대 Notion 페이지 수 (DB 행 포함). 기본 `500` |
-| `VAULT_PATH` | 택1 | Obsidian vault 절대 경로 (Notion만 쓰면 생략) |
+| `VAULT_PATH` | ✅ | Obsidian vault 절대 경로 |
+| `CURSOR_API_KEY` | ✅ | [Cursor Settings](https://cursor.com/settings) → API Keys |
+| `INDEX_INCLUDE` | 선택 | 인덱싱 glob (기본 `**/*.md`) |
+| `NOTION_EXPORT_DIR` | 선택 | Notion md 저장 폴더 (기본 `notion`) |
 
-`VAULT_PATH` 또는 `NOTION_PAGE_IDS` 중 **하나 이상** 필요.
+---
+
+## 워크플로우 (권장)
+
+```
+Notion ──export──► Documents/notion/*.md
+                        │
+                        ├─ npm run index      → data/vectors.json
+                        ├─ npm run build-graph → data/graph.json ([[링크]])
+                        └─ npm run sync-index  → .company-rag/ (Obsidian 플러그인)
+
+Obsidian 앱 ── Company RAG 플러그인 ──► /api/search (시멘틱 + 그래프 확장)
+웹 브라우저 ── /api/chat ──► Cursor SDK 답변
+```
 
 ---
 
 ## 인덱싱
 
-### CLI (권장)
+### CLI 명령
+
+| 명령 | 설명 |
+|------|------|
+| `npm run index` | vault md → 청크 → 임베딩 → `vectors.json` + `graph.json` |
+| `npm run build-graph` | [[위키링크]]만 재빌드 (임베딩 없음, 빠름) |
+| `npm run sync-index` | `data/` → `{VAULT_PATH}/.company-rag/` 복사 |
+| `npm run notion:export` | Notion API → `{VAULT_PATH}/notion/` md |
 
 ```bash
-npm run index
+INDEX_INCLUDE="notion/**/*.md" npm run index
 ```
 
-완료 시 터미널에 JSON 출력:
+완료 예:
 
 ```json
-{ "notionPageCount": 100, "chunkCount": 250, "indexedAt": "..." }
+{
+  "fileCount": 481,
+  "chunkCount": 29333,
+  "graphNodes": 481,
+  "graphEdges": 12,
+  "indexedAt": "..."
+}
 ```
 
-`chunkCount > 0`이면 성공. UI **Re-index** 버튼과 동일 (`POST /api/index`).
+> Documents 전체(`**/*.md`)는 md **7,000+** → **수 시간** 걸릴 수 있음.  
+> 테스트·운영 모두 `notion/**/*.md` 권장.
 
-> 브라우저 Re-index는 인덱싱이 길면 타임아웃 날 수 있음 → **CLI 권장**  
-> `/api/index`를 주소창에 열면 `GET` → **405** (POST만 지원)
+### 언제 다시?
 
-### 언제 다시 인덱싱?
-
-Notion 내용이 바뀌면 **수동 Re-index / `npm run index`** 필요. 실시간 동기화 없음.
-
-### 소요 시간
-
-- 첫 실행: 임베딩 모델 다운로드 **1~3분** 추가
-- Notion DB ~100행: **2~5분**
-- `VAULT_PATH`를 `Documents` 전체로 두면 **수십 분~** (비권장)
-
-### Notion DB URL 권장
-
-일일업무 Memo 같은 **테이블 DB**는 DB URL을 직접 넣는 것이 가장 빠릅니다:
-
-```bash
-NOTION_PAGE_IDS=https://app.notion.com/p/2fb1bb2bb3098039bb6afec45bf5355d
-```
-
-워크스페이스 **허브 페이지** URL을 넣으면 하위 페이지·DB까지 크롤하지만 `NOTION_MAX_PAGES` 한도에 걸릴 수 있습니다.
+md 추가/수정 시 **수동 재실행**. 실시간 동기화 없음 (2차: cron).
 
 ---
 
-## RAG 플로우
+## RAG + 그래프 검색
+
+### 시멘틱 검색
+
+질문 → 임베딩 → `vectors.json` cosine 유사도 top-k
+
+### 그래프 확장 (1-hop)
+
+시멘틱 결과 노트와 `[[위키링크]]`로 **직접 연결된** 이웃 노트를 context에 추가.
+
+> Notion export md는 보통 `[[링크]]`가 없음 → Obsidian에서 링크 추가 후 `npm run build-graph`
 
 ```mermaid
-sequenceDiagram
-    participant U as 사용자
-    participant UI as Web UI
-    participant API as /api/chat
-    participant VS as vectors.json
-    participant LLM as Cursor SDK
-
-    Note over VS: 인덱싱 시 1회 저장
-    U->>UI: 질문 입력
-    UI->>API: POST /api/chat
-    API->>VS: 질문 임베딩 → top-k 검색
-    VS-->>API: 관련 청크
-    API->>LLM: context + 질문
-    LLM-->>API: 스트리밍 답변
-    API-->>UI: SSE
-    UI-->>U: 답변 + 출처 (notion://...)
+flowchart LR
+    Q[질문] --> S[시멘틱 top-k]
+    S --> G[그래프 1-hop 이웃]
+    G --> R[검색 결과 + 🔗 연결]
 ```
-
-**인덱싱** = Notion API → 텍스트 → 청크(~800자) → 로컬 임베딩 → `data/vectors.json`  
-**채팅** = 질문 임베딩 → vectors.json 검색 → LLM 답변 (Notion API 재호출 없음)
-
-### DB 행(테이블) 인덱싱
-
-일일업무 Memo처럼 내용이 **페이지 본문이 아니라 DB 컬럼**(날짜, 담당자 rich_text)에 있으면, `properties-to-text`로 텍스트 변환 후 임베딩합니다.
-
-### 질문 예시
-
-```
-2026-06-24 일일업무보고 알려줘
-6월 24일 이희원 업무 뭐했어?
-```
-
-날짜(`2026-06-24`) + 키워드(`일일업무`, 담당자 이름)를 같이 넣으면 검색이 잘 됩니다.
 
 ---
 
-## 아키텍처
+## Obsidian 플러그인 (Company RAG)
 
-```mermaid
-flowchart TB
-    subgraph sources ["지식 소스"]
-        V["Obsidian vault (.md)"]
-        N["Notion API"]
-    end
+Obsidian **앱 안** 시멘틱 + 그래프 Lookup (유사도 % 바).
 
-    subgraph app ["Next.js App"]
-        I["인덱서\n청크 → 임베딩"]
-        DB["data/vectors.json"]
-        API["/api/chat · /api/index"]
-        UI["웹 채팅 UI"]
-    end
-
-    SDK["Cursor SDK"]
-
-    V --> I
-    N --> I
-    I --> DB
-    UI --> API
-    API --> DB
-    API --> SDK
-```
-
-| 영역 | 기술 |
-|------|------|
-| Framework | Next.js 16 (App Router) |
-| 지식 소스 | Obsidian vault (`.md`) + Notion 페이지/DB |
-| 검색 | RAG — 로컬 임베딩 (`Xenova/all-MiniLM-L6-v2`) + JSON 벡터 스토어 |
-| LLM | Cursor SDK (`@cursor/sdk`) |
-| UI | 웹 채팅 (SSE 스트리밍) |
-
----
-
-## Notion 연동
-
-### 1. Integration 생성
-
-1. [notion.so/profile/integrations](https://www.notion.so/profile/integrations) → **New integration**
-2. 워크스페이스 선택 → Secret 복사 (`secret_...` 또는 `ntn_...`)
-3. `.env.local` → `NOTION_API_KEY=...`
-
-### 2. 페이지/DB 연결 (필수)
-
-Integration만 만들면 API 접근 불가. **읽을 페이지·DB마다** 연결:
-
-1. 대상 페이지 또는 DB 열기
-2. **⋯** → **연결** → integration 선택 (예: mcp)
-
-### 3. NOTION_PAGE_IDS
-
-- **DB URL** (`/p/{32hex}`) — 테이블 DB 직접 인덱싱 (권장)
-- **페이지 URL** — 하위 `child_page` / `child_database` 재귀 크롤
-- `?v=` 쿼리의 뷰 ID는 **무시**되고 path의 DB/페이지 ID만 사용
-
----
-
-## Obsidian vault 연동 (선택)
+### 설치
 
 ```bash
-VAULT_PATH=/Users/you/Documents/company-wiki
+cd obsidian-plugin && npm install && npm run build
+
+mkdir -p ~/Documents/.obsidian/plugins
+ln -sf "$(pwd)/../obsidian-plugin" ~/Documents/.obsidian/plugins/company-rag
+
+cd .. && npm run sync-index
+npm run dev   # 시멘틱 검색 API
 ```
 
-Notion만 쓸 때는 `VAULT_PATH` 주석 처리. vault에 Notion 링크를 적어도 봇이 자동으로 읽지 않음 — `NOTION_PAGE_IDS`로 설정.
+Obsidian → Settings → Community plugins → **Company RAG** ON → 리본 🔍
+
+### 플러그인 UI
+
+- 유사도 **%** + 진행 바
+- **🔗 연결** = 그래프 이웃 노트
+- **노트 열기** → vault md 이동
+- API offline → 로컬 키워드 fallback
 
 ---
 
-## 환경변수 전체
+## Notion → Obsidian
+
+1. Notion integration을 export할 페이지/DB에 **연결**
+2. `.env.local`:
 
 ```bash
-# 지식 소스 (택1 이상)
-VAULT_PATH=/path/to/vault
 NOTION_API_KEY=ntn_...
-NOTION_PAGE_IDS=https://app.notion.com/p/...
+NOTION_EXPORT_ROOT=https://app.notion.com/p/{page-id}
+NOTION_EXPORT_DIR=notion
 NOTION_MAX_PAGES=500
-
-# LLM (필수)
-CURSOR_API_KEY=crsr_...
-CURSOR_MODEL=composer-2.5
-
-# RAG (선택)
-RAG_TOP_K=5
-INDEX_INCLUDE=**/*.md
-DATA_DIR=data
 ```
 
-`.env.local`은 **Git에 커밋하지 마세요.**
+3. `npm run notion:export` → `Documents/notion/*.md`
 
 ---
 
@@ -223,9 +170,10 @@ DATA_DIR=data
 
 | Endpoint | Method | 설명 |
 |----------|--------|------|
-| `/api/chat` | POST | `{ message, history? }` → RAG + Cursor SDK 스트리밍 |
-| `/api/index` | POST | vault + Notion 재인덱싱 |
-| `/api/health` | GET | 설정·인덱스 상태 (`chunkCount`, `indexedAt`) |
+| `/api/chat` | POST | RAG + Cursor SDK 스트리밍 답변 |
+| `/api/search` | POST | `{ query, topK? }` → 시멘틱 + 그래프 결과 (플러그인용) |
+| `/api/index` | POST | vault 재인덱싱 |
+| `/api/health` | GET | `chunkCount`, `indexedAt` |
 
 ---
 
@@ -233,17 +181,21 @@ DATA_DIR=data
 
 ```
 obsidian_chat_bot/
-├── app/api/              # chat, index, health
+├── app/api/              # chat, search, index, health
 ├── lib/
-│   ├── indexer/
-│   ├── notion/           # fetch-pages, properties-to-text, client
+│   ├── indexer/          # scan, chunk, index-vault
+│   ├── graph/            # wikilink 파싱, graph.json
+│   ├── notion-export/    # Notion → md export
 │   ├── embeddings/
 │   ├── vector-store/
-│   ├── rag/
-│   └── llm/
-├── components/chat/
-├── scripts/index-cli.ts  # npm run index
-├── data/vectors.json     # gitignore
+│   └── rag/              # pipeline, graph-expand
+├── obsidian-plugin/      # Company RAG Obsidian plugin
+├── scripts/
+│   ├── index-cli.ts
+│   ├── build-graph-cli.ts
+│   ├── sync-index-to-vault.ts
+│   └── notion-export-cli.ts
+├── data/                 # vectors.json, graph.json (gitignore)
 └── .env.local            # gitignore
 ```
 
@@ -253,28 +205,28 @@ obsidian_chat_bot/
 
 ### MVP (현재)
 
-- 웹 채팅 UI
-- Notion DB/페이지 인덱싱 (+ Obsidian vault 선택)
-- RAG + Cursor SDK 답변 + 출처 표시
-- `npm run index` / Re-index
-- 로그인 없음 · localhost
+- Obsidian vault RAG + Notion export
+- Obsidian **Company RAG** 플러그인 (Lookup)
+- 웹 채팅 UI + `/api/search`
+- 시멘틱 + [[wikilink]] 그래프 1-hop 확장
+- 로컬 임베딩 · localhost
 
 ### 2차
 
-- Vercel/사내 서버 **배포**
-- **웍스 SSO** 로그인
-- 자동 재인덱싱 (cron)
-- Slack, Obsidian 플러그인
+- 배포 + 웍스 SSO
+- cron 자동 re-index / export
+- 플러그인 내 채팅 + 미니 그래프 시각화
+- Slack 연동
 
 ---
 
-## 과금 정리
+## 과금
 
 | 항목 | 과금 |
 |------|------|
-| Notion API (문서 읽기) | Notion 플랜 범위, Cursor 과금 **아님** |
-| Cursor SDK (답변 생성) | **Cursor 구독 크레딧** (IDE와 동일 풀) |
-| 로컬 임베딩 | 무료 (모델 다운로드 1회) |
+| Cursor SDK | Cursor 구독 크레딧 |
+| 로컬 임베딩 | 무료 |
+| Notion API (export) | Notion 플랜 범위 |
 
 ---
 
@@ -284,6 +236,7 @@ obsidian_chat_bot/
 |-----------|------|
 | `.env.local` | API 키 |
 | `data/` | 회사 문서 임베딩 |
+| `Documents/notion/` | export된 회사 문서 |
 
 ---
 

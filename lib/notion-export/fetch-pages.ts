@@ -4,11 +4,11 @@ import { isNotionClientError } from "@notionhq/client";
 
 import {
   extractLinkedTargets,
-} from "@/lib/notion/blocks-to-text";
+} from "@/lib/notion-export/blocks-to-text";
 import {
   extractPageTitle,
   propertiesToText,
-} from "@/lib/notion/properties-to-text";
+} from "@/lib/notion-export/properties-to-text";
 
 export interface NotionPageDocument {
   pageId: string;
@@ -388,6 +388,9 @@ export async function fetchNotionPages(
 
       const doc = await fetchPageDocument(notion, item.id);
       pages.push(doc);
+      if (pages.length % 10 === 0) {
+        console.log(`[notion] fetched ${pages.length} pages...`);
+      }
       await sleep(400);
     } catch (error) {
       if (

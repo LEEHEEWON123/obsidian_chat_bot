@@ -7,7 +7,10 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "index": "tsx scripts/index-cli.ts"
+    "index": "tsx scripts/index-cli.ts",
+    "sync-index": "tsx scripts/sync-index-to-vault.ts",
+    "build-graph": "tsx scripts/build-graph-cli.ts",
+    "notion:export": "tsx scripts/notion-export-cli.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",

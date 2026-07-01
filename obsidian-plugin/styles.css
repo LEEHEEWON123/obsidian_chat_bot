@@ -1,0 +1,133 @@
+.company-rag-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  height: 100%;
+  overflow: auto;
+}
+
+.company-rag-header h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.company-rag-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.company-rag-form {
+  display: flex;
+  gap: 8px;
+}
+
+.company-rag-input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.company-rag-button,
+.company-rag-open {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.company-rag-open {
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
+.company-rag-results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.company-rag-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--background-secondary);
+}
+
+.company-rag-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.company-rag-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.company-rag-badge-graph {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.company-rag-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.company-rag-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.company-rag-bar-fill {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 999px;
+}
+
+.company-rag-bar-graph {
+  background: var(--text-muted);
+}
+
+.company-rag-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.company-rag-preview {
+  font-size: 12px;
+  color: var(--text-normal);
+  line-height: 1.45;
+  margin-top: 4px;
+}
+
+.company-rag-loading,
+.company-rag-empty,
+.company-rag-error {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.company-rag-error {
+  color: var(--text-error);
+}

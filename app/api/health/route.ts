@@ -14,8 +14,6 @@ export async function GET() {
     return NextResponse.json({
       status: "ok",
       vaultPathConfigured: Boolean(config.vaultPath),
-      notionApiKeyConfigured: Boolean(config.notionApiKey),
-      notionPageIdsConfigured: config.notionPageIds.length > 0,
       cursorApiKeyConfigured: Boolean(config.cursorApiKey),
       indexedAt: meta.indexedAt || null,
       chunkCount: meta.chunkCount,

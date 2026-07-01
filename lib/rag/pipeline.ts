@@ -1,4 +1,6 @@
 import { embedText } from "@/lib/embeddings/local";
+import { GraphStore } from "@/lib/graph/store";
+import { expandResultsWithGraph } from "@/lib/rag/graph-expand";
 import { extractDatesFromQuery } from "@/lib/rag/query-dates";
 import { VectorStore, type IndexedChunk } from "@/lib/vector-store/store";
 
@@ -32,7 +34,31 @@ export async function retrieveRelevantChunks(options: {
   }
 
   const queryEmbedding = await embedText(options.query);
-  return store.search(queryEmbedding, options.topK);
+  const semantic = store.search(queryEmbedding, options.topK);
+
+  const graph = await GraphStore.load(options.dataDir);
+  if (graph.getMeta().edgeCount === 0) {
+    return semantic;
+  }
+
+  const rescored = semantic.map((chunk) => ({
+    chunk,
+    score: dot(queryEmbedding, chunk.embedding),
+    source: "semantic" as const,
+  }));
+
+  return expandResultsWithGraph({
+    semanticResults: rescored,
+    graph,
+    allChunks: store.getAllChunks(),
+    maxGraphAdds: options.topK,
+  }).map((item) => item.chunk);
+}
+
+function dot(a: number[], b: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+  return sum;
 }
 
 export function buildRagPrompt(options: {
@@ -60,7 +86,7 @@ export function buildRagPrompt(options: {
 
   return [
     "You are a company knowledge assistant.",
-    "Answer ONLY using the provided context from indexed knowledge (Notion and/or Obsidian).",
+    "Answer ONLY using the provided context from the indexed Obsidian vault.",
     "If the context is insufficient, say you do not have enough information.",
     "Respond in the same language as the user's question.",
     "When helpful, mention which source paths support your answer.",

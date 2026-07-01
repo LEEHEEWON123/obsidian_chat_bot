@@ -11,11 +11,8 @@ export async function POST() {
     assertConfig(config);
 
     const result = await indexAll({
-      vaultPath: config.vaultPath || undefined,
+      vaultPath: config.vaultPath,
       pattern: config.indexInclude,
-      notionApiKey: config.notionApiKey || undefined,
-      notionPageIds: config.notionPageIds,
-      notionMaxPages: config.notionMaxPages,
       dataDir: config.dataDir,
     });
 

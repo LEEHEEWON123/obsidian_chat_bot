@@ -19,8 +19,6 @@ interface HealthStatus {
   chunkCount: number;
   indexedAt: string | null;
   vaultPathConfigured: boolean;
-  notionApiKeyConfigured: boolean;
-  notionPageIdsConfigured: boolean;
   cursorApiKeyConfigured: boolean;
 }
 
@@ -65,7 +63,7 @@ export function ChatPanel() {
 
       if (Array.isArray(data.warnings) && data.warnings.length > 0 && !data.chunkCount) {
         setError(
-          `인덱싱 실패 (0 chunks). Notion 연결/integration 확인 후 Re-index 하세요.`,
+          `인덱싱 실패 (0 chunks). VAULT_PATH와 md 파일 확인 후 Re-index 하세요.`,
         );
       } else if (Array.isArray(data.warnings) && data.warnings.length > 0) {
         setError(
@@ -207,12 +205,10 @@ export function ChatPanel() {
         </button>
       </header>
 
-      {!health?.cursorApiKeyConfigured ||
-      (!health?.vaultPathConfigured &&
-        !(health?.notionApiKeyConfigured && health?.notionPageIdsConfigured)) ? (
+      {!health?.cursorApiKeyConfigured || !health?.vaultPathConfigured ? (
         <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-          `.env.local`에 `CURSOR_API_KEY`와 `VAULT_PATH` 또는 `NOTION_API_KEY` +
-          `NOTION_PAGE_IDS`를 설정한 뒤 재인덱싱하세요.
+          `.env.local`에 `CURSOR_API_KEY`와 `VAULT_PATH`를 설정한 뒤 Re-index
+          하세요.
         </div>
       ) : null}
 
@@ -225,7 +221,7 @@ export function ChatPanel() {
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {messages.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
-            vault를 인덱싱한 뒤 회사 문서(또는 Notion)에 대해 질문해 보세요.
+            Obsidian vault를 인덱싱한 뒤 회사 문서에 대해 질문해 보세요.
           </div>
         ) : null}
 

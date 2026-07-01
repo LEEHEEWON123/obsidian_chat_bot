@@ -1,0 +1,10 @@
+{
+  "id": "company-rag",
+  "name": "Company RAG",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Obsidian vault semantic search (RAG Lookup) with similarity visualization.",
+  "author": "LEEHEEWON",
+  "authorUrl": "https://github.com/LEEHEEWON123/obsidian_chat_bot",
+  "isDesktopOnly": true
+}
