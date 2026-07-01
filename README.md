@@ -120,6 +120,58 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 
 ---
 
+## 기술 스택
+
+### 앱
+
+| 기술 | 용도 |
+|------|------|
+| [Next.js 16](https://nextjs.org/) | 웹 UI + API Route (`/api/chat`, `/api/search`) |
+| [React 19](https://react.dev/) | 채팅 UI |
+| [TypeScript](https://www.typescriptlang.org/) | 앱·플러그인·CLI |
+| [Tailwind CSS 4](https://tailwindcss.com/) | 웹 스타일 |
+| [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) | `/api/chat` 스트리밍 답변 |
+
+### RAG (Retrieval-Augmented Generation)
+
+질문 → 관련 md 조각 검색 → LLM에 context로 붙여 답변.
+
+| 단계 | 구현 | 설명 |
+|------|------|------|
+| Chunking | `lib/indexer/chunk.ts` | md를 ~800자 청크로 분할 (overlap 120) |
+| Embedding | `@xenova/transformers` · `all-MiniLM-L6-v2` | 청크·질문을 384차원 벡터로 변환 (로컬) |
+| Retrieval | `lib/vector-store/store.ts` | cosine similarity top-K |
+| Graph expand | `lib/graph/` · `lib/rag/graph-expand.ts` | `[[wikilink]]` 1-hop 이웃 추가 |
+| Generation | `@cursor/sdk` · `composer-2.5` | context + 질문 → LLM 스트리밍 |
+
+### 저장소 (벡터 DB / Graph DB 대신 JSON)
+
+| 파일 | 내용 |
+|------|------|
+| `data/vectors.json` | 청크 + embedding 배열 |
+| `data/graph.json` | wikilink 노드·엣지 |
+| `{VAULT_PATH}/.company-rag/` | Obsidian 플러그인용 복사본 |
+
+> Pinecone·Neo4j 등 별도 DB 없음. 로컬 MVP용 **JSON + 메모리 brute-force 검색**.
+
+### Obsidian 플러그인
+
+| 기술 | 용도 |
+|------|------|
+| [Obsidian API](https://docs.obsidian.md/) | Company RAG Lookup 사이드바 |
+| esbuild | 플러그인 번들 (`main.js`) |
+| `requestUrl` | `POST /api/search` (offline → 로컬 키워드 fallback) |
+
+### CLI · 기타
+
+| 명령 / 라이브러리 | 용도 |
+|-------------------|------|
+| `tsx` | `index` · `sync-index` · `build-graph` CLI |
+| `glob` | vault md 스캔 (`INDEX_INCLUDE`) |
+| `@notionhq/client` | `npm run notion:export` (선택) |
+
+---
+
 ## 커밋 금지
 
 `.env.local`, `data/`, vault 안 회사 문서·인덱스
