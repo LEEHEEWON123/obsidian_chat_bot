@@ -1,11 +1,37 @@
-# Obsidian Chat Bot
+# Company Chat Bot
 
 Obsidian vault + **Notion** 기반 RAG 회사 전용 챗봇.
 
-로컬 vault/레포의 마크다운과 **Notion 페이지**를 인덱싱하고, 웹 UI에서 질문하면 관련 문서를 검색한 뒤 **Cursor SDK**로 답변을 생성합니다.
+회사 문서(`.md` vault 또는 Notion)를 인덱싱하고, 웹 UI에서 질문하면 관련 내용을 검색한 뒤 **Cursor SDK**로 답변을 생성합니다.
 
-> **현재 단계:** MVP 구현 (로그인 없음)  
-> **목표:** 개인 로컬 MVP → 회사 내부 배포 확장 (2차: 웍스 로그인 등)
+> **현재 단계:** MVP (로그인 없음, 로컬 실행)  
+> **목표:** 전 직원 링크 공개 → 2차: 배포 + 웍스 SSO
+
+---
+
+## 빠른 시작
+
+```bash
+npm install
+cp .env.example .env.local
+# .env.local 편집 (아래 필수 항목 참고)
+npm run dev
+```
+
+1. `http://localhost:3000` 접속
+2. **Re-index** 클릭
+3. 채팅 테스트
+
+### 필수 설정
+
+| 변수 | 필수 | 설명 |
+|------|------|------|
+| `CURSOR_API_KEY` | ✅ | [Cursor Settings](https://cursor.com/settings) → API Keys. **답변 생성 과금 = Cursor 구독 크레딧** |
+| `VAULT_PATH` | 택1 | Obsidian vault / Git 레포 절대 경로 |
+| `NOTION_PAGE_IDS` | 택1 | 회사 문서 **루트 페이지** URL 또는 ID (하위 페이지 자동 수집) |
+| `NOTION_API_KEY` | Notion 사용 시 | [Notion Integrations](https://www.notion.so/profile/integrations) → Internal Integration **Secret** (`secret_...`) |
+
+`VAULT_PATH` 또는 `NOTION_PAGE_IDS` 중 **하나 이상** 필요. 둘 다 설정하면 **합쳐서** 인덱싱.
 
 ---
 
@@ -13,15 +39,19 @@ Obsidian vault + **Notion** 기반 RAG 회사 전용 챗봇.
 
 ```mermaid
 flowchart TB
-    subgraph local ["로컬 (MVP)"]
-        V["Vault (.md)"]
+    subgraph sources ["지식 소스"]
+        V["Obsidian vault (.md)"]
         N["Notion API"]
-        I["인덱서\n스캔 → 청크 → 임베딩"]
-        DB["벡터 DB"]
-        API["Next.js API\n/chat, /index"]
-        UI["웹 채팅 UI"]
-        SDK["Cursor SDK"]
     end
+
+    subgraph app ["Next.js App"]
+        I["인덱서\n청크 → 임베딩"]
+        DB["data/vectors.json"]
+        API["/api/chat · /api/index"]
+        UI["웹 채팅 UI"]
+    end
+
+    SDK["Cursor SDK"]
 
     V --> I
     N --> I
@@ -33,11 +63,11 @@ flowchart TB
 
 | 영역 | 기술 |
 |------|------|
-| Framework | Next.js (App Router) 풀스택 |
+| Framework | Next.js 16 (App Router) |
 | 지식 소스 | Obsidian vault (`.md`) + Notion 페이지 |
-| 검색 | RAG (로컬 임베딩 + JSON 벡터 스토어) |
-| LLM | Cursor SDK (Cursor 구독 크레딧) |
-| UI | 웹 채팅 |
+| 검색 | RAG — 로컬 임베딩 (`Xenova/all-MiniLM-L6-v2`) + JSON 벡터 스토어 |
+| LLM | Cursor SDK (`@cursor/sdk`) |
+| UI | 웹 채팅 (SSE 스트리밍) |
 
 ---
 
@@ -54,19 +84,90 @@ sequenceDiagram
     U->>UI: 질문 입력
     UI->>API: POST /api/chat
     API->>VS: 질문 임베딩 → top-k 검색
-    VS-->>API: 관련 md 청크
-    API->>LLM: system + context + 질문
+    VS-->>API: 관련 청크 (vault / Notion)
+    API->>LLM: context + 질문
     LLM-->>API: 스트리밍 답변
-    API-->>UI: SSE / stream
-    UI-->>U: 답변 표시 + 출처 링크
+    API-->>UI: SSE
+    UI-->>U: 답변 + 출처
 ```
 
-1. vault의 `.md` 파일을 스캔하고 청크 단위로 분할
-2. 각 청크를 임베딩하여 벡터 DB에 저장
-3. 사용자 질문과 유사한 top-k 청크를 검색
-4. 검색 결과를 프롬프트 context로 조립
-5. Cursor SDK로 답변 생성 (스트리밍)
-6. UI에 답변 + **출처 노트 경로** 표시
+**인덱싱(Re-index)** = DB 인덱스 rebuild와 같은 개념. vault/Notion 문서를 읽어 `data/vectors.json`에 검색용 벡터를 저장합니다.
+
+- 첫 실행: 임베딩 모델 다운로드로 **1~3분** 추가
+- vault 범위가 크면 오래 걸림 (예: `Documents` 전체 → 수십 분~). **회사 문서 폴더만** 또는 **Notion 루트 1페이지** 권장
+
+---
+
+## Notion 연동
+
+### 1. Integration 생성
+
+1. [notion.so/profile/integrations](https://www.notion.so/profile/integrations) → **New integration**
+2. 회사 워크스페이스 선택 → **Internal Integration Secret** 복사
+3. `.env.local` → `NOTION_API_KEY=secret_...`
+
+> Secret = API 액세스 토큰. Notion **문서 읽기**용 (Cursor 과금과 무관).
+
+### 2. 페이지 연결 (필수)
+
+Integration만 만들면 API 접근 불가. **읽을 페이지마다** 연결 필요:
+
+1. 회사 문서 **허브 페이지** (뭉탱이) 열기
+2. **⋯** → **연결** → integration 선택
+
+### 3. 루트 페이지 ID
+
+회사 문서를 모아둔 **상위 페이지 URL 하나**면 충분합니다. 하위 페이지·DB·링크된 페이지는 **재귀 인덱싱**됩니다.
+
+```bash
+NOTION_PAGE_IDS=https://www.notion.so/your-workspace/회사문서-xxxx
+```
+
+---
+
+## Obsidian vault 연동
+
+1. Obsidian → **다른 vault 열기** → 회사 문서 폴더 선택
+2. Finder에서 vault 경로 확인
+3. `.env.local`:
+
+```bash
+VAULT_PATH=/Users/you/Documents/company-wiki
+```
+
+> `Documents` 전체를 vault로 쓰면 `.md` 수천 개 → 인덱싱 매우 느림. **하위 폴더 하나** 권장.
+
+---
+
+## 환경변수 전체
+
+```bash
+# 지식 소스 (택1 이상)
+VAULT_PATH=/path/to/vault
+NOTION_API_KEY=secret_...
+NOTION_PAGE_IDS=https://notion.so/...
+
+# LLM (필수)
+CURSOR_API_KEY=cursor_...
+CURSOR_MODEL=composer-2.5
+
+# RAG (선택)
+RAG_TOP_K=5
+INDEX_INCLUDE=**/*.md
+EMBEDDING_MODEL=local
+```
+
+`.env.local`은 **Git에 커밋하지 마세요.**
+
+---
+
+## API
+
+| Endpoint | Method | 설명 |
+|----------|--------|------|
+| `/api/chat` | POST | `{ message, history? }` → RAG + Cursor SDK 스트리밍 |
+| `/api/index` | POST | vault + Notion 재인덱싱 |
+| `/api/health` | GET | 설정·인덱스 상태 (`chunkCount`, `indexedAt`) |
 
 ---
 
@@ -75,111 +176,53 @@ sequenceDiagram
 ```
 obsidian_chat_bot/
 ├── app/
-│   ├── page.tsx              # 채팅 UI
-│   ├── api/
-│   │   ├── chat/route.ts     # RAG + Cursor SDK
-│   │   ├── index/route.ts    # 재인덱싱 트리거
-│   │   └── health/route.ts   # 인덱스 상태
-│   └── layout.tsx
+│   ├── page.tsx
+│   └── api/
+│       ├── chat/route.ts
+│       ├── index/route.ts
+│       └── health/route.ts
 ├── lib/
-│   ├── indexer/              # vault + Notion 인덱싱
-│   ├── notion/               # Notion API fetch
-│   ├── embeddings/           # 로컬 임베딩
-│   ├── vector-store/         # 유사도 검색
-│   ├── rag/                  # retrieve + prompt 조립
-│   └── llm/                  # Cursor SDK 래퍼
-├── components/
-│   └── chat/                 # 메시지 UI, 입력창
-├── data/                     # 벡터 DB (gitignore)
-├── .env.local                # 비밀값 (gitignore)
-└── .env.example              # 환경변수 템플릿
-```
-
----
-
-## API
-
-| Endpoint | Method | 설명 |
-|----------|--------|------|
-| `/api/chat` | POST | `{ message, history? }` → RAG 검색 → Cursor SDK 스트리밍 응답 |
-| `/api/index` | POST | vault + Notion 재스캔 → 임베딩 → 벡터 DB 갱신 |
-| `/api/health` | GET | 인덱스 상태 (문서 수, 마지막 인덱싱 시각) |
-
----
-
-## 환경변수
-
-`.env.local`에 설정합니다. **절대 Git에 커밋하지 마세요.**
-
-```bash
-VAULT_PATH=/path/to/your/vault          # 선택 (Notion만 써도 됨)
-NOTION_API_KEY=secret_...               # 선택
-NOTION_PAGE_IDS=page-id-1,page-id-2     # 선택 (쉼표 구분)
-CURSOR_API_KEY=your_cursor_api_key
-CURSOR_MODEL=composer-2.5
-INDEX_INCLUDE=**/*.md
-RAG_TOP_K=5
-```
-
-`VAULT_PATH` 또는 `NOTION_PAGE_IDS` 중 **하나 이상** 필요.
-
----
-
-## Notion 연동 설정
-
-1. [Notion Integrations](https://www.notion.so/profile/integrations) → **New integration**
-2. **Internal integration** 생성 → **Secret** 복사 → `NOTION_API_KEY`
-3. Notion에서 인덱싱할 **페이지** 열기 → **⋯** → **연결** → 방금 만든 integration 추가
-4. 페이지 URL에서 ID 복사 → `NOTION_PAGE_IDS` (여러 개면 쉼표 구분)
-5. **Re-index** 클릭 → 하위 페이지·DB도 재귀 인덱싱
-
-> Notion API는 **문서 읽기만** (Notion 과금 없음). **답변 생성**은 Cursor SDK 크레딧 사용.
-
-```bash
-cp .env.example .env.local
-```
-
----
-
-## 로컬 실행
-
-```bash
-npm install
-cp .env.example .env.local
-# .env.local 에 VAULT_PATH, CURSOR_API_KEY 설정
-npm run dev
-```
-
-1. 브라우저에서 `http://localhost:3000` 접속
-2. **Re-index vault** 버튼으로 `.md` 문서 인덱싱
-3. 채팅창에서 질문
-
-```bash
-npm run build
-npm start
+│   ├── indexer/          # vault + Notion 통합 인덱싱
+│   ├── notion/           # Notion API
+│   ├── embeddings/       # 로컬 임베딩
+│   ├── vector-store/     # 벡터 검색
+│   ├── rag/              # retrieve + prompt
+│   └── llm/              # Cursor SDK
+├── components/chat/
+├── data/                 # vectors.json (gitignore)
+├── .env.example
+└── .env.local            # gitignore
 ```
 
 ---
 
 ## MVP vs 2차
 
-### MVP
+### MVP (현재)
 
-- Next.js 웹 채팅 UI
-- 로컬 vault `.md` + Notion 페이지 인덱싱
-- RAG + Cursor SDK 답변
-- 수동 재인덱싱
-- 출처(노트 경로) 표시
-- 로그인 없음
+- 웹 채팅 UI
+- Obsidian vault + Notion 인덱싱
+- RAG + Cursor SDK 답변 + 출처 표시
+- 수동 Re-index
+- 로그인 없음 · localhost
 
 ### 2차
 
-- 웍스 / SSO 로그인
-- 팀 배포
-- 코드 파일 (`.ts`, `.py` 등) 인덱싱
-- vault 자동 watch / Git hook
+- Vercel/사내 서버 **배포** → 전 직원 URL
+- **웍스 SSO** 로그인
+- 자동 재인덱싱 (Git hook / cron)
 - Slack, Obsidian 플러그인
-- 부서별 vault / 접근 제어
+- 코드 파일 인덱싱, 부서별 권한
+
+---
+
+## 과금 정리
+
+| 항목 | 과금 |
+|------|------|
+| Notion API (문서 읽기) | Notion 플랜 범위, Cursor 과금 **아님** |
+| Cursor SDK (답변 생성) | **Cursor 구독 크레딧** |
+| 로컬 임베딩 | 무료 (모델 다운로드 1회) |
 
 ---
 
@@ -187,11 +230,9 @@ npm start
 
 | 커밋 금지 | 이유 |
 |-----------|------|
-| `.env.local`, `.env` | API 키, vault 실제 경로 |
-| `data/` (벡터 DB) | 회사 문서 임베딩 데이터 |
-| vault 원본 / 회사 내부 URL | 민감 정보 |
-
-공개 레포라면 README에 실제 사용자명·회사 경로를 적지 마세요.
+| `.env.local` | API 키, vault 경로 |
+| `data/` | 회사 문서 임베딩 |
+| Notion/Cursor Secret | 유출 시 API 남용 |
 
 ---
 
