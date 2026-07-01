@@ -9,6 +9,7 @@ export interface AppConfig {
   dataDir: string;
   notionApiKey: string;
   notionPageIds: string[];
+  notionMaxPages: number;
 }
 
 export function getConfig(): AppConfig {
@@ -25,6 +26,7 @@ export function getConfig(): AppConfig {
     notionPageIds: notionPageIdsRaw
       ? parseNotionPageIds(notionPageIdsRaw)
       : [],
+    notionMaxPages: Number(process.env.NOTION_MAX_PAGES ?? 500),
   };
 }
 

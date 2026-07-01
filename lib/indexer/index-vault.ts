@@ -11,6 +11,7 @@ export interface IndexResult {
   notionPageCount: number;
   chunkCount: number;
   indexedAt: string;
+  warnings?: string[];
 }
 
 async function indexVaultFiles(options: {
@@ -45,11 +46,13 @@ export async function indexAll(options: {
   pattern: string;
   notionApiKey?: string;
   notionPageIds?: string[];
+  notionMaxPages?: number;
   dataDir: string;
 }): Promise<IndexResult> {
   const allChunks: IndexedChunk[] = [];
   let fileCount = 0;
   let notionPageCount = 0;
+  const warnings: string[] = [];
 
   if (options.vaultPath) {
     const vaultResult = await indexVaultFiles({
@@ -64,9 +67,11 @@ export async function indexAll(options: {
     const notionResult = await indexNotionPages({
       apiKey: options.notionApiKey,
       pageIds: options.notionPageIds,
+      maxPages: options.notionMaxPages,
     });
     notionPageCount = notionResult.pageCount;
     allChunks.push(...notionResult.chunks);
+    warnings.push(...notionResult.warnings);
   }
 
   const store = await VectorStore.load(options.dataDir);
@@ -78,5 +83,6 @@ export async function indexAll(options: {
     notionPageCount,
     chunkCount: allChunks.length,
     indexedAt: store.getMeta().indexedAt,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }

@@ -66,17 +66,34 @@ export function extractChildPageIds(blocks: BlockObjectResponse[]): string[] {
   return ids;
 }
 
-export function extractLinkedPageIds(blocks: BlockObjectResponse[]): string[] {
-  const ids: string[] = [];
+export function extractLinkedTargets(
+  blocks: BlockObjectResponse[],
+): { id: string; kind: "page" | "database" }[] {
+  const targets: { id: string; kind: "page" | "database" }[] = [];
 
   for (const block of blocks) {
     if (block.type !== "link_to_page") continue;
 
     const target = block.link_to_page;
     if (target.type === "page_id") {
-      ids.push(target.page_id.replace(/-/g, ""));
+      targets.push({
+        id: target.page_id.replace(/-/g, ""),
+        kind: "page",
+      });
+    } else if (target.type === "database_id") {
+      targets.push({
+        id: target.database_id.replace(/-/g, ""),
+        kind: "database",
+      });
     }
   }
 
-  return ids;
+  return targets;
+}
+
+/** @deprecated Use extractLinkedTargets */
+export function extractLinkedPageIds(blocks: BlockObjectResponse[]): string[] {
+  return extractLinkedTargets(blocks)
+    .filter((t) => t.kind === "page")
+    .map((t) => t.id);
 }

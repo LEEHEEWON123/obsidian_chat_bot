@@ -7,18 +7,31 @@ import { fetchNotionPages } from "@/lib/notion/fetch-pages";
 export async function indexNotionPages(options: {
   apiKey: string;
   pageIds: string[];
-}): Promise<{ pageCount: number; chunks: IndexedChunk[] }> {
+  maxPages?: number;
+}): Promise<{
+  pageCount: number;
+  chunks: IndexedChunk[];
+  warnings: string[];
+}> {
   if (options.pageIds.length === 0) {
-    return { pageCount: 0, chunks: [] };
+    return { pageCount: 0, chunks: [], warnings: [] };
   }
 
   const notion = createNotionClient(options.apiKey);
-  const pages = await fetchNotionPages(notion, options.pageIds);
+  const { pages, warnings } = await fetchNotionPages(notion, options.pageIds, {
+    maxPages: options.maxPages,
+  });
+
+  console.log(`[notion] fetched ${pages.length} pages, ${warnings.length} warnings`);
+
   const chunks: IndexedChunk[] = [];
 
   for (const page of pages) {
     const pagePath = `notion://${page.pageId}`;
-    const pageChunks = chunkMarkdown(pagePath, `${page.content}\n\nSource: ${page.url}`);
+    const pageChunks = chunkMarkdown(
+      pagePath,
+      `${page.content}\n\nSource: ${page.url}`,
+    );
 
     if (pageChunks.length === 0) continue;
 
@@ -36,5 +49,6 @@ export async function indexNotionPages(options: {
   return {
     pageCount: pages.length,
     chunks,
+    warnings,
   };
 }

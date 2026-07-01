@@ -51,7 +51,7 @@ export function buildRagPrompt(options: {
 
   return [
     "You are a company knowledge assistant.",
-    "Answer ONLY using the provided context from the Obsidian vault.",
+    "Answer ONLY using the provided context from indexed knowledge (Notion and/or Obsidian).",
     "If the context is insufficient, say you do not have enough information.",
     "Respond in the same language as the user's question.",
     "When helpful, mention which source paths support your answer.",

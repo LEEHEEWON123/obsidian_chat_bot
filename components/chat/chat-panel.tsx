@@ -63,6 +63,16 @@ export function ChatPanel() {
         throw new Error(data.error ?? "Indexing failed");
       }
 
+      if (Array.isArray(data.warnings) && data.warnings.length > 0 && !data.chunkCount) {
+        setError(
+          `인덱싱 실패 (0 chunks). Notion 연결/integration 확인 후 Re-index 하세요.`,
+        );
+      } else if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+        setError(
+          `인덱싱 완료 (${data.chunkCount ?? 0} chunks). 경고 ${data.warnings.length}건`,
+        );
+      }
+
       await loadHealth();
     } catch (indexError) {
       setError(

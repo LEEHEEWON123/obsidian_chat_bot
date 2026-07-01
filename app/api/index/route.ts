@@ -15,6 +15,7 @@ export async function POST() {
       pattern: config.indexInclude,
       notionApiKey: config.notionApiKey || undefined,
       notionPageIds: config.notionPageIds,
+      notionMaxPages: config.notionMaxPages,
       dataDir: config.dataDir,
     });
 
