@@ -5,6 +5,8 @@ export interface AppConfig {
   indexInclude: string;
   topK: number;
   dataDir: string;
+  qdrantUrl: string;
+  qdrantCollection: string;
 }
 
 export function getConfig(): AppConfig {
@@ -15,6 +17,8 @@ export function getConfig(): AppConfig {
     indexInclude: process.env.INDEX_INCLUDE ?? "**/*.md",
     topK: Number(process.env.RAG_TOP_K ?? 5),
     dataDir: process.env.DATA_DIR ?? "data",
+    qdrantUrl: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
+    qdrantCollection: process.env.QDRANT_COLLECTION ?? "company-rag",
   };
 }
 

@@ -20,6 +20,7 @@
 
 # vector db & indexed data
 /data/
+/qdrant_data/
 
 # misc
 .DS_Store

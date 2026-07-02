@@ -108,8 +108,7 @@ export async function indexAll(options: {
   }
 
   const store = await VectorStore.load(options.dataDir);
-  store.replaceAll(vaultResult.chunks);
-  await store.save();
+  await store.replaceAll(vaultResult.chunks);
 
   const graph = await GraphStore.load(options.dataDir);
   graph.replaceAll(vaultResult.graphNodes, vaultResult.graphEdges);

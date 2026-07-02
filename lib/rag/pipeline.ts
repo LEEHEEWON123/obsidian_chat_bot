@@ -15,6 +15,10 @@ export interface RetrievedSource {
   startLine: number;
 }
 
+function chunkFilePath(chunk: IndexedChunk): string {
+  return chunk.path.replace(/\\/g, "/");
+}
+
 export async function retrieveRelevantChunks(options: {
   query: string;
   dataDir: string;
@@ -27,14 +31,14 @@ export async function retrieveRelevantChunks(options: {
 
   const dates = extractDatesFromQuery(options.query);
   if (dates.length > 0) {
-    const dateChunks = store.findChunksForDates(dates);
+    const dateChunks = await store.findChunksForDates(dates);
     if (dateChunks.length > 0) {
       return dateChunks.slice(0, Math.max(options.topK, dateChunks.length));
     }
   }
 
   const queryEmbedding = await embedText(options.query);
-  const semantic = store.search(queryEmbedding, options.topK);
+  const semantic = await store.search(queryEmbedding, options.topK);
 
   const graph = await GraphStore.load(options.dataDir);
   if (graph.getMeta().edgeCount === 0) {
@@ -47,10 +51,15 @@ export async function retrieveRelevantChunks(options: {
     source: "semantic" as const,
   }));
 
+  const seedPaths = [...new Set(semantic.map((chunk) => chunkFilePath(chunk)))];
+  const neighborPaths = graph.expandNodes(seedPaths, 1);
+  const lookupPaths = [...new Set([...seedPaths, ...neighborPaths])];
+  const lookupChunks = await store.getChunksByPaths(lookupPaths);
+
   return expandResultsWithGraph({
     semanticResults: rescored,
     graph,
-    allChunks: store.getAllChunks(),
+    allChunks: lookupChunks,
     maxGraphAdds: options.topK,
   }).map((item) => item.chunk);
 }
