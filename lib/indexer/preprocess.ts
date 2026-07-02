@@ -46,6 +46,9 @@ function extractFrontmatterTitle(frontmatter: string): string | undefined {
 export function cleanMarkdownForChunk(text: string): string {
   return (
     text
+      // Notion exports wrap prose in ```lang code fences; drop the fence
+      // markers so the text embeds as content, not code.
+      .replace(/^\s*```[a-zA-Z0-9+-]*\s*$/gm, "")
       // Notion / HTML blocks
       .replace(/<empty-block\s*\/?>/gi, "")
       .replace(/<[^>]+>/g, "")

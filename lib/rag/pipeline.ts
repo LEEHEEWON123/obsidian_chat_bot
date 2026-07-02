@@ -5,11 +5,7 @@ import { GraphStore } from "@/lib/graph/store";
 import { expandResultsWithGraph } from "@/lib/rag/graph-expand";
 import { mergeHybridResults, type ScoredChunk } from "@/lib/rag/hybrid";
 import { extractDatesFromQuery } from "@/lib/rag/query-dates";
-import {
-  matchesRootFolder,
-  parseQuery,
-  scoreKeywordMatch,
-} from "@/lib/rag/query-hints";
+import { parseQuery, scoreKeywordMatch } from "@/lib/rag/query-hints";
 import { VectorStore, type IndexedChunk } from "@/lib/vector-store/store";
 
 export interface ChatMessage {
@@ -72,13 +68,11 @@ export async function retrieveRelevantChunksWithMeta(options: {
 
   const parsed = parseQuery(options.query);
   const semanticQuery = parsed.semanticQuery || options.query;
-  const folderHints = parsed.folderHints;
 
   const keywordChunks =
     parsed.terms.length > 0
       ? await store.findChunksByKeywords({
           terms: parsed.terms,
-          rootFolders: folderHints,
           limit: recallK,
         })
       : [];
@@ -90,15 +84,7 @@ export async function retrieveRelevantChunksWithMeta(options: {
   }));
 
   const queryEmbedding = await embedText(semanticQuery);
-  const semanticFetchK =
-    folderHints.length > 0 ? Math.min(recallK * 2, 100) : recallK;
-  let semanticChunks = await store.search(queryEmbedding, semanticFetchK);
-
-  if (folderHints.length > 0) {
-    semanticChunks = semanticChunks.filter((chunk) =>
-      matchesRootFolder(chunk.path, folderHints),
-    );
-  }
+  const semanticChunks = await store.search(queryEmbedding, recallK);
 
   const semanticScored: ScoredChunk[] = semanticChunks.map((chunk) => ({
     chunk,
@@ -121,7 +107,14 @@ export async function retrieveRelevantChunksWithMeta(options: {
       topK: options.topK,
     });
 
-    return reranked.map((item) => ({
+    // The cross-encoder judges query/document relevance directly. Drop
+    // chunks below the relevance floor so weak matches are not surfaced
+    // as if they answered the question.
+    const relevant = reranked.filter(
+      (item) => item.score >= config.rerankMinScore,
+    );
+
+    return relevant.map((item) => ({
       chunk: item.chunk,
       score: item.score,
       source: "rerank" as const,

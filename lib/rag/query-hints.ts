@@ -49,35 +49,6 @@ export interface ParsedQuery {
   terms: string[];
 }
 
-const FOLDER_ALIASES: Array<{
-  patterns: RegExp[];
-  folder: string;
-  addToTerms: boolean;
-}> = [
-  { patterns: [/노션/gi, /\bnotion\b/gi], folder: "notion", addToTerms: false },
-  {
-    patterns: [/보고팡/gi, /\bvogopang\b/gi],
-    folder: "vogopang_front",
-    addToTerms: false,
-  },
-  {
-    patterns: [/푸딩툰/gi, /\bpudding\b/gi],
-    folder: "pudding_front",
-    addToTerms: false,
-  },
-  {
-    patterns: [/덥라이트/gi, /\bdubright\b/gi],
-    folder: "dubright_front",
-    addToTerms: false,
-  },
-  { patterns: [/픽미툰/gi, /\bpickme\b/gi], folder: "notion", addToTerms: true },
-  {
-    patterns: [/럭키디펜스/gi, /\blucky[- ]?defense\b/gi],
-    folder: "lucky-defense",
-    addToTerms: true,
-  },
-];
-
 const STOPWORDS = new Set([
   "에서",
   "으로",
@@ -87,12 +58,24 @@ const STOPWORDS = new Set([
   "내용",
   "관련",
   "알려",
+  "알려줘",
   "해줘",
   "가져",
+  "가져와",
+  "가져와줘",
+  "가져와바",
   "들고",
   "들고와",
-  "가져와",
+  "들고와줘",
+  "들고와바",
   "보여",
+  "보여줘",
+  "정리",
+  "정리해줘",
+  "요약",
+  "요약해줘",
+  "찾아",
+  "찾아줘",
   "줘",
   "좀",
   "것",
@@ -107,21 +90,9 @@ const STOPWORDS = new Set([
   "with",
 ]);
 
-function stripFolderPhrases(query: string): string {
-  let text = query;
-  for (const alias of FOLDER_ALIASES) {
-    for (const pattern of alias.patterns) {
-      text = text.replace(pattern, " ");
-    }
-  }
-  return text
-    .replace(/^(에서|으로|에게|까지|부터)\s+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function extractTerms(text: string): string[] {
   const tokens = text
+    .replace(/^(에서|으로|에게|까지|부터)\s+/g, "")
     .split(/[\s,./|·]+/)
     .map((item) => item.trim())
     .filter((item) => item.length >= 2 && !STOPWORDS.has(item.toLowerCase()));
@@ -130,35 +101,15 @@ function extractTerms(text: string): string[] {
 }
 
 export function parseQuery(query: string): ParsedQuery {
-  const folderHints = new Set<string>();
-  const keywordAliasTokens: string[] = [];
-
-  for (const alias of FOLDER_ALIASES) {
-    for (const pattern of alias.patterns) {
-      const matches = query.match(new RegExp(pattern.source, pattern.flags));
-      if (matches) {
-        folderHints.add(alias.folder);
-        if (alias.addToTerms) {
-          for (const match of matches) {
-            const token = match.trim();
-            if (token.length >= 2) keywordAliasTokens.push(token);
-          }
-        }
-      }
-      pattern.lastIndex = 0;
-    }
-  }
-
-  const stripped = stripFolderPhrases(query);
-  const terms = [
-    ...new Set([...extractTerms(stripped), ...keywordAliasTokens]),
-  ];
+  const terms = extractTerms(query);
   const semanticQuery = terms.join(" ") || query.trim();
 
   return {
     raw: query,
     semanticQuery,
-    folderHints: [...folderHints],
+    // Folder routing is no longer inferred from keywords; the cross-encoder
+    // reranker decides relevance from the full query/document context.
+    folderHints: [],
     terms,
   };
 }
