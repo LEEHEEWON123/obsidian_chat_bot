@@ -4,7 +4,7 @@ import type { GraphStore } from "@/lib/graph/store";
 export interface ScoredChunk {
   chunk: IndexedChunk;
   score: number;
-  source: "semantic" | "graph";
+  source: "keyword" | "semantic" | "graph";
 }
 
 function chunkFilePath(chunk: IndexedChunk): string {

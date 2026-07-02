@@ -1,8 +1,10 @@
 # Obsidian Chat Bot
 
-Obsidian **vault 폴더** (`VAULT_PATH`) 안의 `.md`를 인덱싱해 **시멘틱 검색·채팅**합니다.
+Obsidian **vault 폴더** (`VAULT_PATH`) 안의 `.md`를 인덱싱해 **hybrid 검색 + rerank + 채팅**합니다.
 
 벡터 저장은 **Qdrant** (로컬 Docker). Obsidian **Company RAG** 플러그인은 `/api/search`로 검색하고, API가 꺼지면 vault `.company-rag/` offline fallback을 씁니다.
+
+**v0.3** — Hybrid 검색(키워드 + 시맨틱) + **BGE rerank** 2단 retrieval. Qdrant payload에 `rootFolder` 포함.
 
 **v0.2** — `vectors.json` 대신 Qdrant Search Engine 패턴 (HNSW cosine top-K).
 
@@ -47,12 +49,33 @@ flowchart TB
   SYNC --> RAG
   META --> BG
 
-  PLG -->|"POST /api/search<br/>시멘틱 + 그래프"| SEARCH
+  PLG -->|"POST /api/search<br/>hybrid + rerank"| SEARCH
   PLG -->|"offline"| RAG
   SEARCH --> VEC
   WEB -->|"POST /api/chat<br/>RAG + Cursor SDK"| CHAT
   CHAT --> VEC
 ```
+
+### 검색 워크플로우 (v0.3)
+
+```mermaid
+flowchart LR
+  Q[질문] --> P[parseQuery<br/>키워드·폴더 힌트]
+  P --> H[1차 Hybrid Recall]
+  H --> K[키워드 scan<br/>path·title·content]
+  H --> S[시맨틱 search<br/>Qdrant top-K]
+  K --> M[후보 merge<br/>RAG_RECALL_K]
+  S --> M
+  M --> R[2차 Rerank<br/>bge-reranker-v2-m3]
+  R --> L[최종 top-K<br/>RAG_TOP_K]
+  L --> G[LLM /api/chat]
+```
+
+| 단계 | 역할 |
+|------|------|
+| **1차 Hybrid** | 의미(시맨틱) + 정확한 단어(키워드)로 후보 **넓게** 수집 |
+| **2차 Rerank** | cross-encoder가 query+청크 쌍을 읽고 **순위 재정렬** |
+| **Generation** | rerank된 청크를 context로 Cursor SDK 답변 |
 
 | 구성 | 역할 |
 |------|------|
@@ -90,6 +113,11 @@ cp .env.example .env.local
 | `RAG_INDEX_DIR` | vault 내 인덱스 폴더 (기본 `.company-rag`) |
 | `QDRANT_URL` | Qdrant REST URL (기본 `http://127.0.0.1:6333`) |
 | `QDRANT_COLLECTION` | Qdrant 컬렉션 (기본 `company-rag`) |
+| `RAG_TOP_K` | rerank **후** LLM·API에 넘길 최종 청크 수 |
+| `RAG_RECALL_K` | hybrid **1차** 후보 풀 크기 (기본 `50`) |
+| `RERANK_ENABLED` | cross-encoder rerank 사용 (`true` / `false`) |
+| `RERANK_MODEL` | rerank ONNX 모델 (기본 `woxpas-ai/bge-reranker-v2-m3-onnx`) |
+| `RERANK_BATCH_SIZE` | rerank 배치 크기 (기본 `8`) |
 
 ---
 
@@ -165,7 +193,7 @@ INDEX_INCLUDE=**/*.md
 
 | 출력 | 내용 |
 |------|------|
-| **Qdrant** `company-rag` | 청크 텍스트 + 임베딩 벡터 (`all-MiniLM-L6-v2`) |
+| **Qdrant** `company-rag` | 청크 텍스트 + 임베딩 벡터 + payload (`path`, `title`, `content`, `startLine`, `rootFolder`) |
 | `data/vector-meta.json` | 인덱스 메타 (`indexedAt`, `chunkCount`) |
 | `graph.json` | 같은 md들의 `[[wikilink]]` 노드·엣지 |
 
@@ -206,15 +234,26 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 
 ### RAG (Retrieval-Augmented Generation)
 
-질문 → 관련 md 조각 검색 → LLM에 context로 붙여 답변.
+질문 → **hybrid recall** → **rerank** → 관련 md 조각 → LLM에 context로 붙여 답변.
 
-| 단계 | 구현 | 설명 |
-|------|------|------|
-| Chunking | `lib/indexer/chunk.ts` | md를 ~800자 청크로 분할 (overlap 120) |
-| Embedding | `@xenova/transformers` · `all-MiniLM-L6-v2` | 청크·질문을 384차원 벡터로 변환 (로컬) |
-| Retrieval | `lib/vector-store/store.ts` · **Qdrant** | HNSW cosine top-K |
-| Graph expand | `lib/graph/` · `lib/rag/graph-expand.ts` | `[[wikilink]]` 1-hop 이웃 추가 |
-| Generation | `@cursor/sdk` · `composer-2.5` | context + 질문 → LLM 스트리밍 |
+| 단계 | 구현 | 모델 / 저장 |
+|------|------|-------------|
+| Chunking | `lib/indexer/chunk.ts` | md를 ~800자 청크 (overlap 120) |
+| Embedding | `lib/embeddings/local.ts` | **`Xenova/all-MiniLM-L6-v2`** · 384차원 (로컬 bi-encoder) |
+| 1차 Hybrid | `lib/rag/query-hints.ts` · `lib/rag/hybrid.ts` | 키워드(path/title/content) + Qdrant 시맨틱 → `RAG_RECALL_K` |
+| 2차 Rerank | `lib/rerank/local.ts` | **`BAAI/bge-reranker-v2-m3`** (ONNX: `woxpas-ai/bge-reranker-v2-m3-onnx`) cross-encoder |
+| Graph expand | `lib/graph/` · `lib/rag/graph-expand.ts` | rerank **비활성** 시 wikilink 1-hop (기본은 rerank 우선) |
+| Generation | `@cursor/sdk` · `CURSOR_MODEL` | context + 질문 → LLM 스트리밍 (기본 `composer-2.5`) |
+
+#### 사용 모델 요약
+
+| 용도 | Hugging Face / 설정 | 비고 |
+|------|---------------------|------|
+| 인덱싱·시맨틱 검색 | [Xenova/all-MiniLM-L6-v2](https://huggingface.co/Xenova/all-MiniLM-L6-v2) | `@xenova/transformers`, 384-dim cosine |
+| Rerank | [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) | ONNX via `RERANK_MODEL`, query+passage 쌍 scoring |
+| 채팅 LLM | Cursor SDK (`CURSOR_MODEL`) | API key 필요 |
+
+> Rerank 모델 **첫 로드** 시 ONNX 가중치 다운로드(~500MB)로 수십 초 걸릴 수 있습니다.
 
 ### 저장소
 

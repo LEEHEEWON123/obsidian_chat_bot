@@ -3,12 +3,14 @@ import path from "path";
 
 import type { DocumentChunk } from "@/lib/indexer/chunk";
 import { getConfig } from "@/lib/config";
+import { matchesRootFolder, scoreKeywordMatch } from "@/lib/rag/query-hints";
 import {
   chunkToPointId,
   createQdrantClient,
   ensureCollection,
   recreateCollection,
 } from "@/lib/vector-store/qdrant";
+import { rootFolderFromPath } from "@/lib/vector-store/payload";
 
 export interface IndexedChunk extends DocumentChunk {
   embedding: number[];
@@ -29,18 +31,41 @@ interface ChunkPayload extends Record<string, unknown> {
   title: string;
   content: string;
   startLine: number;
+  rootFolder?: string;
 }
 
-const UPSERT_BATCH = 128;
+const UPSERT_BATCH = 32;
 const SCROLL_BATCH = 256;
 
+/** Strip chars that break Qdrant's JSON parser (Rust serde). */
+function sanitizePayloadText(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += text[i] + text[i + 1];
+        i++;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) continue;
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) continue;
+    out += text[i];
+  }
+  return out;
+}
+
 function payloadFromChunk(chunk: IndexedChunk): ChunkPayload {
+  const path = sanitizePayloadText(chunk.path);
   return {
     id: chunk.id,
-    path: chunk.path,
-    title: chunk.title,
-    content: chunk.content,
+    path,
+    title: sanitizePayloadText(chunk.title),
+    content: sanitizePayloadText(chunk.content),
     startLine: chunk.startLine,
+    rootFolder: rootFolderFromPath(path),
   };
 }
 
@@ -122,24 +147,52 @@ export class VectorStore {
     const client = this.client();
     await recreateCollection(client, this.collection);
 
+    let upserted = 0;
     for (let i = 0; i < chunks.length; i += UPSERT_BATCH) {
       const batch = chunks.slice(i, i + UPSERT_BATCH);
-      await client.upsert(this.collection, {
-        wait: true,
-        points: batch.map((chunk) => ({
-          id: chunkToPointId(chunk.id),
-          vector: chunk.embedding,
-          payload: payloadFromChunk(chunk),
-        })),
-      });
-      if (i > 0 && i % 512 === 0) {
-        console.log(`[qdrant] upserted ${Math.min(i + UPSERT_BATCH, chunks.length)}/${chunks.length}`);
+      try {
+        await client.upsert(this.collection, {
+          wait: true,
+          points: batch.map((chunk) => ({
+            id: chunkToPointId(chunk.id),
+            vector: chunk.embedding,
+            payload: payloadFromChunk(chunk),
+          })),
+        });
+        upserted += batch.length;
+      } catch (error) {
+        console.warn(
+          `[qdrant] batch upsert failed at ${i}, retrying one-by-one...`,
+        );
+        for (const chunk of batch) {
+          try {
+            await client.upsert(this.collection, {
+              wait: true,
+              points: [
+                {
+                  id: chunkToPointId(chunk.id),
+                  vector: chunk.embedding,
+                  payload: payloadFromChunk(chunk),
+                },
+              ],
+            });
+            upserted++;
+          } catch (pointError) {
+            const message =
+              pointError instanceof Error ? pointError.message : String(pointError);
+            console.warn(`[qdrant] skip point path=${chunk.path}: ${message}`);
+          }
+        }
+      }
+
+      if (upserted > 0 && upserted % 512 < UPSERT_BATCH) {
+        console.log(`[qdrant] upserted ${upserted}/${chunks.length}`);
       }
     }
 
     this.meta = {
       indexedAt: new Date().toISOString(),
-      chunkCount: chunks.length,
+      chunkCount: upserted,
     };
     await this.saveMeta();
   }
@@ -233,6 +286,53 @@ export class VectorStore {
     }
 
     return chunks;
+  }
+
+  /** Keyword scan: all terms must appear in path, title, or content. */
+  async findChunksByKeywords(options: {
+    terms: string[];
+    rootFolders?: string[];
+    limit: number;
+  }): Promise<IndexedChunk[]> {
+    const { terms, rootFolders = [], limit } = options;
+    if (terms.length === 0 || this.meta.chunkCount === 0) return [];
+
+    const client = this.client();
+    const scored: Array<{ chunk: IndexedChunk; score: number }> = [];
+    let offset: string | number | undefined;
+    const maxBatches = rootFolders.length > 0 ? 200 : 80;
+
+    for (let batch = 0; batch < maxBatches; batch++) {
+      const response = await client.scroll(this.collection, {
+        limit: SCROLL_BATCH,
+        offset,
+        with_payload: true,
+        with_vector: true,
+      });
+
+      for (const point of response.points) {
+        const payload = point.payload as ChunkPayload | null | undefined;
+        if (!payload || !point.vector) continue;
+
+        if (!matchesRootFolder(payload.path, rootFolders)) continue;
+
+        const embedding = Array.isArray(point.vector)
+          ? point.vector.map(Number)
+          : Object.values(point.vector as Record<string, number>).map(Number);
+        const chunk = chunkFromRecord(payload, embedding);
+        const score = scoreKeywordMatch(chunk, terms);
+        if (score > 0) scored.push({ chunk, score });
+      }
+
+      if (response.points.length < SCROLL_BATCH) break;
+      offset = normalizeScrollOffset(response.next_page_offset);
+      if (offset === undefined) break;
+    }
+
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((item) => item.chunk);
   }
 
   /** All chunks from pages that match any of the given ISO dates (title or body). */

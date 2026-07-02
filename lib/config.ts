@@ -4,6 +4,10 @@ export interface AppConfig {
   cursorModel: string;
   indexInclude: string;
   topK: number;
+  recallK: number;
+  rerankEnabled: boolean;
+  rerankModel: string;
+  rerankBatchSize: number;
   dataDir: string;
   qdrantUrl: string;
   qdrantCollection: string;
@@ -16,6 +20,11 @@ export function getConfig(): AppConfig {
     cursorModel: process.env.CURSOR_MODEL ?? "composer-2.5",
     indexInclude: process.env.INDEX_INCLUDE ?? "**/*.md",
     topK: Number(process.env.RAG_TOP_K ?? 5),
+    recallK: Number(process.env.RAG_RECALL_K ?? 50),
+    rerankEnabled: process.env.RERANK_ENABLED !== "false",
+    rerankModel:
+      process.env.RERANK_MODEL ?? "woxpas-ai/bge-reranker-v2-m3-onnx",
+    rerankBatchSize: Number(process.env.RERANK_BATCH_SIZE ?? 8),
     dataDir: process.env.DATA_DIR ?? "data",
     qdrantUrl: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
     qdrantCollection: process.env.QDRANT_COLLECTION ?? "company-rag",

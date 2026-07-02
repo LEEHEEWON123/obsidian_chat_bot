@@ -1,7 +1,15 @@
+import { getConfig } from "@/lib/config";
 import { embedText } from "@/lib/embeddings/local";
+import { rerankChunks } from "@/lib/rerank/local";
 import { GraphStore } from "@/lib/graph/store";
 import { expandResultsWithGraph } from "@/lib/rag/graph-expand";
+import { mergeHybridResults, type ScoredChunk } from "@/lib/rag/hybrid";
 import { extractDatesFromQuery } from "@/lib/rag/query-dates";
+import {
+  matchesRootFolder,
+  parseQuery,
+  scoreKeywordMatch,
+} from "@/lib/rag/query-hints";
 import { VectorStore, type IndexedChunk } from "@/lib/vector-store/store";
 
 export interface ChatMessage {
@@ -15,15 +23,31 @@ export interface RetrievedSource {
   startLine: number;
 }
 
+export interface RetrievedChunkMeta {
+  chunk: IndexedChunk;
+  score: number;
+  source: "keyword" | "semantic" | "rerank" | "graph";
+}
+
 function chunkFilePath(chunk: IndexedChunk): string {
   return chunk.path.replace(/\\/g, "/");
 }
 
-export async function retrieveRelevantChunks(options: {
+function dot(a: number[], b: number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
+  return sum;
+}
+
+export async function retrieveRelevantChunksWithMeta(options: {
   query: string;
   dataDir: string;
   topK: number;
-}): Promise<IndexedChunk[]> {
+  recallK?: number;
+}): Promise<RetrievedChunkMeta[]> {
+  const config = getConfig();
+  const recallK = options.recallK ?? config.recallK;
+
   const store = await VectorStore.load(options.dataDir);
   if (store.getMeta().chunkCount === 0) {
     return [];
@@ -33,41 +57,111 @@ export async function retrieveRelevantChunks(options: {
   if (dates.length > 0) {
     const dateChunks = await store.findChunksForDates(dates);
     if (dateChunks.length > 0) {
-      return dateChunks.slice(0, Math.max(options.topK, dateChunks.length));
+      return dateChunks.slice(0, Math.max(options.topK, dateChunks.length)).map(
+        (chunk) => ({
+          chunk,
+          score: 1,
+          source: "semantic" as const,
+        }),
+      );
     }
   }
 
-  const queryEmbedding = await embedText(options.query);
-  const semantic = await store.search(queryEmbedding, options.topK);
+  const parsed = parseQuery(options.query);
+  const semanticQuery = parsed.semanticQuery || options.query;
+  const folderHints = parsed.folderHints;
+
+  const keywordChunks =
+    parsed.terms.length > 0
+      ? await store.findChunksByKeywords({
+          terms: parsed.terms,
+          rootFolders: folderHints,
+          limit: recallK,
+        })
+      : [];
+
+  const keywordScored: ScoredChunk[] = keywordChunks.map((chunk) => ({
+    chunk,
+    score: scoreKeywordMatch(chunk, parsed.terms),
+    source: "keyword",
+  }));
+
+  const queryEmbedding = await embedText(semanticQuery);
+  const semanticFetchK =
+    folderHints.length > 0 ? Math.min(recallK * 2, 100) : recallK;
+  let semanticChunks = await store.search(queryEmbedding, semanticFetchK);
+
+  if (folderHints.length > 0) {
+    semanticChunks = semanticChunks.filter((chunk) =>
+      matchesRootFolder(chunk.path, folderHints),
+    );
+  }
+
+  const semanticScored: ScoredChunk[] = semanticChunks.map((chunk) => ({
+    chunk,
+    score: dot(queryEmbedding, chunk.embedding),
+    source: "semantic",
+  }));
+
+  const candidates = mergeHybridResults({
+    keyword: keywordScored,
+    semantic: semanticScored,
+    limit: recallK,
+  });
+
+  if (candidates.length === 0) return [];
+
+  if (config.rerankEnabled) {
+    const reranked = await rerankChunks({
+      query: options.query,
+      chunks: candidates.map((item) => item.chunk),
+      topK: options.topK,
+    });
+
+    return reranked.map((item) => ({
+      chunk: item.chunk,
+      score: item.score,
+      source: "rerank" as const,
+    }));
+  }
 
   const graph = await GraphStore.load(options.dataDir);
   if (graph.getMeta().edgeCount === 0) {
-    return semantic;
+    return candidates.slice(0, options.topK).map((item) => ({
+      chunk: item.chunk,
+      score: item.score,
+      source: item.source,
+    }));
   }
 
-  const rescored = semantic.map((chunk) => ({
-    chunk,
-    score: dot(queryEmbedding, chunk.embedding),
-    source: "semantic" as const,
-  }));
-
-  const seedPaths = [...new Set(semantic.map((chunk) => chunkFilePath(chunk)))];
+  const seedPaths = [
+    ...new Set(candidates.map((item) => chunkFilePath(item.chunk))),
+  ];
   const neighborPaths = graph.expandNodes(seedPaths, 1);
   const lookupPaths = [...new Set([...seedPaths, ...neighborPaths])];
   const lookupChunks = await store.getChunksByPaths(lookupPaths);
 
   return expandResultsWithGraph({
-    semanticResults: rescored,
+    semanticResults: candidates,
     graph,
     allChunks: lookupChunks,
     maxGraphAdds: options.topK,
-  }).map((item) => item.chunk);
+  })
+    .slice(0, options.topK)
+    .map((item) => ({
+      chunk: item.chunk,
+      score: item.score,
+      source: item.source,
+    }));
 }
 
-function dot(a: number[], b: number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
-  return sum;
+export async function retrieveRelevantChunks(options: {
+  query: string;
+  dataDir: string;
+  topK: number;
+}): Promise<IndexedChunk[]> {
+  const results = await retrieveRelevantChunksWithMeta(options);
+  return results.map((item) => item.chunk);
 }
 
 export function buildRagPrompt(options: {
