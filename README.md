@@ -178,14 +178,26 @@ INDEX_INCLUDE=**/*.md
 
 ### 어떻게 잘라서 저장하나 (청킹)
 
-`lib/indexer/chunk.ts`:
+`lib/indexer/chunk.ts` + `lib/indexer/preprocess.ts`:
 
 | 규칙 | 값 |
 |------|-----|
+| 전처리 | frontmatter `title:` 추출, URL·HTML 제거 후 청킹 |
+| 문서 제목 | frontmatter `title:` → 없으면 첫 `#` → 없으면 파일명 |
 | 섹션 분리 | `#` 제목 단위 |
 | 최대 청크 크기 | **800자** |
 | 겹침 (overlap) | **120자** |
-| 청크 내용 | `# 섹션제목` + 본문 조각 |
+| 청크 내용 | `# 문서제목`(다를 때) + `# 섹션제목` + 본문 조각 |
+| payload `title` | `문서제목 — 섹션제목` (같으면 섹션만) |
+
+**전처리에서 제거·단순화** (`cleanMarkdownForChunk`):
+
+- HTML 태그 (`<table>`, `<empty-block/>` 등)
+- 마크다운 이미지 `![](url)` → `[image]`
+- 링크 `[텍스트](url)` → 텍스트만
+- 긴 `https://` URL
+
+청킹 규칙을 바꾼 뒤에는 **`npm run index`를 다시 실행**해야 Qdrant에 반영됩니다.
 
 파일 1개가 여러 청크가 될 수 있습니다. 검색·유사도는 **파일 단위가 아니라 청크 단위**입니다.
 
@@ -238,7 +250,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 
 | 단계 | 구현 | 모델 / 저장 |
 |------|------|-------------|
-| Chunking | `lib/indexer/chunk.ts` | md를 ~800자 청크 (overlap 120) |
+| Chunking | `lib/indexer/chunk.ts`, `preprocess.ts` | frontmatter·URL/HTML 전처리 후 ~800자 청크 |
 | Embedding | `lib/embeddings/local.ts` | **`Xenova/all-MiniLM-L6-v2`** · 384차원 (로컬 bi-encoder) |
 | 1차 Hybrid | `lib/rag/query-hints.ts` · `lib/rag/hybrid.ts` | 키워드(path/title/content) + Qdrant 시맨틱 → `RAG_RECALL_K` |
 | 2차 Rerank | `lib/rerank/local.ts` | **`BAAI/bge-reranker-v2-m3`** (ONNX: `woxpas-ai/bge-reranker-v2-m3-onnx`) cross-encoder |

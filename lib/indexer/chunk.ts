@@ -1,5 +1,10 @@
 import { createHash } from "crypto";
 
+import {
+  cleanMarkdownForChunk,
+  parseFrontmatter,
+} from "@/lib/indexer/preprocess";
+
 export interface DocumentChunk {
   id: string;
   path: string;
@@ -32,60 +37,97 @@ function splitBySize(text: string): string[] {
   return parts.filter(Boolean);
 }
 
+function buildChunkContent(options: {
+  documentTitle: string;
+  sectionHeading: string;
+  piece: string;
+}): string {
+  const { documentTitle, sectionHeading, piece } = options;
+  const parts: string[] = [];
+
+  if (documentTitle && documentTitle !== sectionHeading) {
+    parts.push(`# ${documentTitle}`);
+  }
+  parts.push(`# ${sectionHeading}`, "", piece);
+
+  return parts.join("\n").trim();
+}
+
+function chunkTitle(documentTitle: string, sectionHeading: string): string {
+  if (!documentTitle || documentTitle === sectionHeading) {
+    return sectionHeading;
+  }
+  return `${documentTitle} — ${sectionHeading}`;
+}
+
 export function chunkMarkdown(relativePath: string, raw: string): DocumentChunk[] {
-  const lines = raw.split("\n");
-  const title =
+  const { body: rawBody, documentTitle: frontmatterTitle, bodyStartLine } =
+    parseFrontmatter(raw);
+  const body = cleanMarkdownForChunk(rawBody);
+  if (!body) return [];
+
+  const lines = body.split("\n");
+  const fallbackTitle =
     lines.find((line) => line.startsWith("# "))?.replace(/^#\s+/, "") ??
     relativePath.split("/").pop()?.replace(/\.md$/, "") ??
     relativePath;
+  const documentTitle = frontmatterTitle ?? fallbackTitle;
 
   const sections: { heading: string; body: string; startLine: number }[] = [];
-  let currentHeading = title;
+  let currentHeading = documentTitle;
   let currentBody: string[] = [];
-  let sectionStart = 1;
+  let sectionStart = bodyStartLine;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.startsWith("#")) {
       if (currentBody.length > 0) {
-        sections.push({
-          heading: currentHeading,
-          body: currentBody.join("\n").trim(),
-          startLine: sectionStart,
-        });
+        const sectionBody = cleanMarkdownForChunk(currentBody.join("\n"));
+        if (sectionBody) {
+          sections.push({
+            heading: currentHeading,
+            body: sectionBody,
+            startLine: sectionStart,
+          });
+        }
       }
-      currentHeading = line.replace(/^#+\s+/, "").trim() || title;
+      currentHeading = line.replace(/^#+\s+/, "").trim() || documentTitle;
       currentBody = [];
-      sectionStart = i + 1;
+      sectionStart = i + bodyStartLine;
       continue;
     }
     currentBody.push(line);
   }
 
   if (currentBody.length > 0) {
-    sections.push({
-      heading: currentHeading,
-      body: currentBody.join("\n").trim(),
-      startLine: sectionStart,
-    });
+    const sectionBody = cleanMarkdownForChunk(currentBody.join("\n"));
+    if (sectionBody) {
+      sections.push({
+        heading: currentHeading,
+        body: sectionBody,
+        startLine: sectionStart,
+      });
+    }
   }
 
   const chunks: DocumentChunk[] = [];
 
   for (const section of sections) {
-    if (!section.body) continue;
-
     const pieces =
       section.body.length > CHUNK_SIZE
         ? splitBySize(section.body)
         : [section.body];
 
     pieces.forEach((piece, index) => {
-      const content = `# ${section.heading}\n\n${piece}`.trim();
+      const content = buildChunkContent({
+        documentTitle,
+        sectionHeading: section.heading,
+        piece,
+      });
       chunks.push({
         id: chunkId(relativePath, index, content),
         path: relativePath,
-        title: section.heading,
+        title: chunkTitle(documentTitle, section.heading),
         content,
         startLine: section.startLine,
       });
