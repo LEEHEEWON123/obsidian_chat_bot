@@ -118,6 +118,7 @@ cp .env.example .env.local
 | `RERANK_ENABLED` | cross-encoder rerank 사용 (`true` / `false`) |
 | `RERANK_MODEL` | rerank ONNX 모델 (기본 `woxpas-ai/bge-reranker-v2-m3-onnx`) |
 | `RERANK_BATCH_SIZE` | rerank 배치 크기 (기본 `8`) |
+| `RERANK_MIN_SCORE` | rerank **관련성 하한** (raw logit, 기본 `0`). 미만 청크는 검색 결과에서 제외 |
 
 ---
 
@@ -178,26 +179,89 @@ INDEX_INCLUDE=**/*.md
 
 ### 어떻게 잘라서 저장하나 (청킹)
 
-`lib/indexer/chunk.ts` + `lib/indexer/preprocess.ts`:
+검색 단위는 **파일 1개가 아니라 청크 1개**입니다. `npm run index` 시 아래 순서로 처리되고, Qdrant `company-rag` 컬렉션에 저장됩니다.
+
+```
+원본 .md
+  → ① frontmatter 분리 + title 추출
+  → ② 전처리 (cleanMarkdownForChunk)
+  → ③ # 헤딩 기준 섹션 분리
+  → ④ 섹션 본문이 800자 초과 시 overlap 120으로 분할
+  → ⑤ content/title 조립
+  → ⑥ content 임베딩 (384차원)
+  → Qdrant (vector + payload)
+```
+
+구현: `lib/indexer/preprocess.ts` (전처리) · `lib/indexer/chunk.ts` (청킹)
+
+#### 규칙 요약
 
 | 규칙 | 값 |
 |------|-----|
-| 전처리 | frontmatter `title:` 추출, URL·HTML 제거 후 청킹 |
 | 문서 제목 | frontmatter `title:` → 없으면 첫 `#` → 없으면 파일명 |
-| 섹션 분리 | `#` 제목 단위 |
-| 최대 청크 크기 | **800자** |
-| 겹침 (overlap) | **120자** |
-| 청크 내용 | `# 문서제목`(다를 때) + `# 섹션제목` + 본문 조각 |
+| 섹션 분리 | `#`로 시작하는 줄 = 새 섹션 (`##`, `###` 포함) |
+| `#` 없는 본문 | 문서 제목을 섹션 제목으로 사용 |
+| 최대 청크 크기 | **800자** (섹션 **본문** 기준) |
+| 겹침 (overlap) | **120자** (800자 초과 섹션을 여러 청크로 자를 때만) |
+| 분할 방식 | 문단/문장이 아니라 **글자 수** 기준 기계적 슬라이스 |
+| 임베딩 대상 | payload **`content`** 전체 (`Xenova/all-MiniLM-L6-v2`, 384차원) |
+| 청크 `content` | `# 문서제목`(섹션과 다를 때) + `# 섹션제목` + 본문 조각 |
 | payload `title` | `문서제목 — 섹션제목` (같으면 섹션만) |
+| 전처리 후 본문 없음 | 해당 파일 **청크 0개** (인덱스에서 스킵) |
 
-**전처리에서 제거·단순화** (`cleanMarkdownForChunk`):
+#### 전처리 (`cleanMarkdownForChunk`)
 
-- HTML 태그 (`<table>`, `<empty-block/>` 등)
-- 마크다운 이미지 `![](url)` → `[image]`
-- 링크 `[텍스트](url)` → 텍스트만
-- 긴 `https://` URL
+인덱싱 시 **1회** 적용. 검색 시에는 다시 돌리지 않습니다.
 
-청킹 규칙을 바꾼 뒤에는 **`npm run index`를 다시 실행**해야 Qdrant에 반영됩니다.
+| 처리 | 내용 |
+|------|------|
+| Notion 코드펜스 | ` ```javascript ` 등 **펜스 라인만** 제거 (안의 본문은 유지) |
+| HTML | `<empty-block/>`, `<table>` 등 태그 제거 |
+| 이미지 | `![](url)` → `[image]` |
+| 링크 | `[텍스트](url)` → 텍스트만 |
+| URL | 긴 `https://...` 제거 |
+
+> Notion export는 회의 본문을 ` ```javascript ` 블록으로 감싸는 경우가 많습니다. 펜스를 그대로 두면 임베딩이 코드로 오염되고, `# 구분` / `# 이름` 같은 짧은 메타 섹션이 본문보다 검색 상위에 뜰 수 있습니다.
+
+#### 섹션·청크 예시 (정기미팅)
+
+`notion/11월 10일 정기미팅 (2a61bb2b).md` 같은 노션 문서:
+
+| 섹션 | 내용 | 결과 |
+|------|------|------|
+| (제목 섹션) | `[플랫폼본부]`, 푸딩툰 65%, 픽미툰… | **본문 청크** (길면 800자 단위로 여러 개) |
+| `# 구분` | `정기` | 짧은 메타 청크 |
+| `# 이름` | `11월 10일 정기미팅` | 짧은 메타 청크 |
+
+임베딩되는 `content` 예:
+
+```markdown
+# 11월 10일 정기미팅
+
+[플랫폼본부]
+
+--- 지난주 업무 진행 상황 ---
+
+[푸딩툰 리뉴얼]
+- 작업 목표 진행율 : 65%(목표:70%)
+...
+```
+
+#### Qdrant 포인트 1개 = 청크 1개
+
+| 필드 | 설명 |
+|------|------|
+| **vector** | `content` 임베딩 (384차원, cosine) |
+| `path` | vault 기준 상대경로 (예: `notion/foo.md`) |
+| `title` | UI·키워드 검색용 |
+| `content` | 임베딩·리랭크·채팅 스니펫에 사용하는 전체 텍스트 |
+| `startLine` | 원본 md에서 해당 섹션 시작 줄 (대략) |
+| `rootFolder` | 경로 첫 segment (예: `notion`) |
+| `id` | `sha256(path:index:content앞64자)` 16자 |
+
+**원본 md 파일 전체는 Qdrant에 저장되지 않습니다.** 검색으로 `path` + `startLine`만 알 수 있고, 전문이 필요하면 vault에서 해당 md를 직접 열어야 합니다.
+
+청킹·전처리 규칙을 바꾼 뒤에는 **`npm run index`를 다시 실행**해야 Qdrant에 반영됩니다.
 
 파일 1개가 여러 청크가 될 수 있습니다. 검색·유사도는 **파일 단위가 아니라 청크 단위**입니다.
 
@@ -250,10 +314,10 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 
 | 단계 | 구현 | 모델 / 저장 |
 |------|------|-------------|
-| Chunking | `lib/indexer/chunk.ts`, `preprocess.ts` | frontmatter·URL/HTML 전처리 후 ~800자 청크 |
+| Chunking | `lib/indexer/chunk.ts`, `preprocess.ts` | 전처리 → `#` 섹션 → 800자/overlap 120 → `content` 임베딩 |
 | Embedding | `lib/embeddings/local.ts` | **`Xenova/all-MiniLM-L6-v2`** · 384차원 (로컬 bi-encoder) |
-| 1차 Hybrid | `lib/rag/query-hints.ts` · `lib/rag/hybrid.ts` | 키워드(path/title/content) + Qdrant 시맨틱 → `RAG_RECALL_K` |
-| 2차 Rerank | `lib/rerank/local.ts` | **`BAAI/bge-reranker-v2-m3`** (ONNX: `woxpas-ai/bge-reranker-v2-m3-onnx`) cross-encoder |
+| 1차 Hybrid | `lib/rag/query-hints.ts` · `lib/rag/hybrid.ts` | 키워드 + Qdrant 시맨틱 → merge `RAG_RECALL_K` |
+| 2차 Rerank | `lib/rerank/local.ts` | **`BAAI/bge-reranker-v2-m3`** cross-encoder · `RERANK_MIN_SCORE` 미만 제외 |
 | Graph expand | `lib/graph/` · `lib/rag/graph-expand.ts` | rerank **비활성** 시 wikilink 1-hop (기본은 rerank 우선) |
 | Generation | `@cursor/sdk` · `CURSOR_MODEL` | context + 질문 → LLM 스트리밍 (기본 `composer-2.5`) |
 
