@@ -6,6 +6,7 @@ export interface Source {
   path: string;
   title: string;
   startLine: number;
+  content: string;
 }
 
 export interface Message {
@@ -240,12 +241,26 @@ export function ChatPanel() {
               {message.content || (loading ? "..." : "")}
               {message.role === "assistant" && message.sources?.length ? (
                 <div className="mt-3 border-t border-zinc-200 pt-3 text-xs text-zinc-600">
-                  <p className="mb-1 font-medium">Sources</p>
-                  <ul className="space-y-1">
+                  <p className="mb-2 font-medium">Sources</p>
+                  <ul className="space-y-3">
                     {message.sources.map((source) => (
-                      <li key={`${source.path}-${source.startLine}`}>
-                        {source.path}
-                        {source.startLine ? `#L${source.startLine}` : ""}
+                      <li
+                        key={`${source.path}-${source.startLine}`}
+                        className="rounded-lg bg-white/80 px-2 py-2"
+                      >
+                        <p className="font-medium text-zinc-800">
+                          {source.path}
+                          {source.startLine ? `#L${source.startLine}` : ""}
+                        </p>
+                        {source.title ? (
+                          <p className="mt-0.5 text-zinc-500">{source.title}</p>
+                        ) : null}
+                        {source.content ? (
+                          <p className="mt-1 whitespace-pre-wrap text-zinc-600 leading-5">
+                            {source.content}
+                            {source.content.length >= 399 ? "…" : ""}
+                          </p>
+                        ) : null}
                       </li>
                     ))}
                   </ul>

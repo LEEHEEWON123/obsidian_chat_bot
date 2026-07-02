@@ -21,7 +21,10 @@ export interface RetrievedSource {
   path: string;
   title: string;
   startLine: number;
+  content: string;
 }
+
+export const SOURCE_SNIPPET_MAX = 400;
 
 export interface RetrievedChunkMeta {
   chunk: IndexedChunk;
@@ -189,10 +192,15 @@ export function buildRagPrompt(options: {
 
   return [
     "You are a company knowledge assistant.",
-    "Answer ONLY using the provided context from the indexed Obsidian vault.",
-    "If the context is insufficient, say you do not have enough information.",
-    "Respond in the same language as the user's question.",
-    "When helpful, mention which source paths support your answer.",
+    "Answer using ONLY the CONTEXT excerpts below from the indexed Obsidian vault.",
+    "",
+    "Rules:",
+    "- Extract and explain concrete details from the excerpts (steps, settings, values, procedures).",
+    "- Paraphrase or quote the relevant parts of the CONTEXT in your answer.",
+    "- Do NOT respond with only a list of file paths or document titles.",
+    "- When helpful, cite source paths inline.",
+    "- If the CONTEXT is insufficient, say you do not have enough information.",
+    "- Respond in the same language as the user's question.",
     "",
     "CONTEXT:",
     context,
@@ -204,7 +212,10 @@ export function buildRagPrompt(options: {
     .join("\n");
 }
 
-export function toSources(chunks: IndexedChunk[]): RetrievedSource[] {
+export function toSources(
+  chunks: IndexedChunk[],
+  maxContentLength = SOURCE_SNIPPET_MAX,
+): RetrievedSource[] {
   const seen = new Set<string>();
   const sources: RetrievedSource[] = [];
 
@@ -216,8 +227,19 @@ export function toSources(chunks: IndexedChunk[]): RetrievedSource[] {
       path: chunk.path,
       title: chunk.title,
       startLine: chunk.startLine,
+      content: chunk.content.slice(0, maxContentLength),
     });
   }
 
   return sources;
+}
+
+export function toSourcesFromMeta(
+  items: RetrievedChunkMeta[],
+  maxContentLength = SOURCE_SNIPPET_MAX,
+): RetrievedSource[] {
+  return toSources(
+    items.map((item) => item.chunk),
+    maxContentLength,
+  );
 }

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { assertConfig, getConfig } from "@/lib/config";
-import { streamCursorResponse } from "@/lib/llm/cursor";
+import { streamCursorPrompt } from "@/lib/llm/cursor";
 import {
   buildRagPrompt,
-  retrieveRelevantChunks,
-  toSources,
+  retrieveRelevantChunksWithMeta,
+  toSourcesFromMeta,
   type ChatMessage,
 } from "@/lib/rag/pipeline";
 
@@ -32,11 +32,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const chunks = await retrieveRelevantChunks({
+    const retrieved = await retrieveRelevantChunksWithMeta({
       query: message,
       dataDir: config.dataDir,
       topK: config.topK,
     });
+
+    const chunks = retrieved.map((item) => item.chunk);
 
     const prompt = buildRagPrompt({
       question: message,
@@ -44,7 +46,7 @@ export async function POST(request: Request) {
       history: body.history,
     });
 
-    const sources = toSources(chunks);
+    const sources = toSourcesFromMeta(retrieved);
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -55,7 +57,7 @@ export async function POST(request: Request) {
         );
 
         try {
-          for await (const delta of streamCursorResponse({
+          for await (const delta of streamCursorPrompt({
             apiKey: config.cursorApiKey,
             model: config.cursorModel,
             prompt,

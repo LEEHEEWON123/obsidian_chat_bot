@@ -7,6 +7,20 @@ async function getAgentClass(): Promise<AgentConstructor> {
   return Agent;
 }
 
+export async function* streamCursorPrompt(options: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+}): AsyncGenerator<string> {
+  const text = await askCursor(options);
+  if (!text) return;
+
+  const chunkSize = 24;
+  for (let i = 0; i < text.length; i += chunkSize) {
+    yield text.slice(i, i + chunkSize);
+  }
+}
+
 export async function* streamCursorResponse(options: {
   apiKey: string;
   model: string;
