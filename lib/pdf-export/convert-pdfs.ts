@@ -16,6 +16,7 @@ export interface PdfExportOptions {
   indexDir: string;
   hybrid?: string;
   hybridUrl?: string;
+  hybridMode?: string;
 }
 
 export interface PdfExportResult {
@@ -78,6 +79,25 @@ function assertJavaAvailable(): void {
   );
 }
 
+async function waitForHybridServer(hybridUrl: string, timeoutMs = 120_000): Promise<void> {
+  const base = hybridUrl.replace(/\/$/, "");
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${base}/health`);
+      if (response.ok) return;
+    } catch {
+      // server still starting (DocumentConverter init ~5s after container up)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  throw new Error(
+    `Hybrid OCR server not ready at ${base}/health. Run \`npm run pdf:hybrid:up\` and wait for health OK.`,
+  );
+}
+
 function titleFromMarkdown(markdown: string, fallback: string): string {
   const match = markdown.match(/^#\s+(.+)$/m);
   if (match?.[1]?.trim()) return match[1].trim();
@@ -134,7 +154,7 @@ async function findMarkdownOutput(
 export async function exportPdfsToVault(
   options: PdfExportOptions,
 ): Promise<PdfExportResult> {
-  const { vaultPath, pdfPaths, indexDir, hybrid, hybridUrl } = options;
+  const { vaultPath, pdfPaths, indexDir, hybrid, hybridUrl, hybridMode } = options;
   const warnings: string[] = [];
 
   if (pdfPaths.length === 0) {
@@ -142,6 +162,11 @@ export async function exportPdfsToVault(
   }
 
   assertJavaAvailable();
+
+  if (hybrid && hybridUrl) {
+    console.log(`[pdf] waiting for hybrid OCR at ${hybridUrl} ...`);
+    await waitForHybridServer(hybridUrl);
+  }
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "odp-export-"));
   let exported = 0;
@@ -168,7 +193,13 @@ export async function exportPdfsToVault(
           format: "markdown",
           markdownPageSeparator: PAGE_SEPARATOR,
           quiet: true,
-          ...(hybrid ? { hybrid, hybridUrl } : {}),
+          ...(hybrid
+            ? {
+                hybrid,
+                hybridUrl,
+                hybridMode: hybridMode ?? "full",
+              }
+            : {}),
         });
 
         const mdPath = await findMarkdownOutput(

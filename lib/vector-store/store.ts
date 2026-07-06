@@ -150,9 +150,11 @@ export class VectorStore {
     return this.meta;
   }
 
-  async replaceAll(chunks: IndexedChunk[]): Promise<void> {
+  private async upsertChunksInternal(chunks: IndexedChunk[]): Promise<number> {
+    if (chunks.length === 0) return 0;
+
     const client = this.client();
-    await recreateCollection(client, this.collection);
+    await ensureCollection(client, this.collection);
 
     let upserted = 0;
     for (let i = 0; i < chunks.length; i += UPSERT_BATCH) {
@@ -167,7 +169,7 @@ export class VectorStore {
           })),
         });
         upserted += batch.length;
-      } catch (error) {
+      } catch {
         console.warn(
           `[qdrant] batch upsert failed at ${i}, retrying one-by-one...`,
         );
@@ -196,6 +198,68 @@ export class VectorStore {
         console.log(`[qdrant] upserted ${upserted}/${chunks.length}`);
       }
     }
+
+    return upserted;
+  }
+
+  async upsertChunks(chunks: IndexedChunk[]): Promise<void> {
+    const upserted = await this.upsertChunksInternal(chunks);
+    if (upserted === 0) return;
+
+    this.meta = {
+      indexedAt: new Date().toISOString(),
+      chunkCount: this.meta.chunkCount + upserted,
+    };
+    await this.saveMeta();
+  }
+
+  async deleteByPaths(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+
+    const normalized = [...new Set(paths.map((item) => item.replace(/\\/g, "/")))];
+    const client = this.client();
+    await ensureCollection(client, this.collection);
+
+    const existing = await this.getChunksByPaths(normalized);
+    if (existing.length === 0) return;
+
+    await client.delete(this.collection, {
+      wait: true,
+      filter: {
+        should: normalized.map((filePath) => ({
+          key: "path",
+          match: { value: filePath },
+        })),
+      },
+    });
+
+    this.meta = {
+      indexedAt: new Date().toISOString(),
+      chunkCount: Math.max(0, this.meta.chunkCount - existing.length),
+    };
+    await this.saveMeta();
+  }
+
+  async patchChunks(options: {
+    deletePaths: string[];
+    upsert: IndexedChunk[];
+  }): Promise<void> {
+    await this.deleteByPaths(options.deletePaths);
+    const upserted = await this.upsertChunksInternal(options.upsert);
+    if (upserted > 0) {
+      this.meta = {
+        indexedAt: new Date().toISOString(),
+        chunkCount: this.meta.chunkCount + upserted,
+      };
+      await this.saveMeta();
+    }
+  }
+
+  async replaceAll(chunks: IndexedChunk[]): Promise<void> {
+    const client = this.client();
+    await recreateCollection(client, this.collection);
+
+    const upserted = await this.upsertChunksInternal(chunks);
 
     this.meta = {
       indexedAt: new Date().toISOString(),

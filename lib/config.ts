@@ -7,6 +7,7 @@ export interface AppConfig {
   pdfIndexDir: string;
   pdfHybrid: string;
   pdfHybridUrl: string;
+  pdfHybridMode: string;
   topK: number;
   recallK: number;
   rerankEnabled: boolean;
@@ -46,6 +47,7 @@ export function getConfig(): AppConfig {
     pdfIndexDir,
     pdfHybrid: process.env.PDF_HYBRID ?? "",
     pdfHybridUrl: process.env.PDF_HYBRID_URL ?? "",
+    pdfHybridMode: process.env.PDF_HYBRID_MODE ?? "full",
     topK: Number(process.env.RAG_TOP_K ?? 5),
     recallK: Number(process.env.RAG_RECALL_K ?? 50),
     rerankEnabled: process.env.RERANK_ENABLED !== "false",

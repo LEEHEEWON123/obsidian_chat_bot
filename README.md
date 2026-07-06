@@ -80,7 +80,7 @@ flowchart LR
 | 구성 | 역할 |
 |------|------|
 | vault md (`INDEX_INCLUDE`) | 인덱싱 대상 (예: `**/*.md`, `notion/**/*.md`) |
-| `npm run index` | md → 임베딩 → **Qdrant** + graph |
+| `npm run index` | md → 임베딩 → **Qdrant** + graph (기본 **증분**, 변경 파일만 임베딩) |
 | `npm run pdf:export` | PDF → `.pdf-index/**/*.md` sidecar (Java 11+, [OpenDataLoader](https://github.com/opendataloader-project/opendataloader-pdf)) |
 | `npm run sync-index` | Qdrant → vault `.company-rag/vectors.json` (offline용) |
 | **Company RAG 플러그인** | Obsidian 사이드바 Lookup · `/api/search` 호출 |
@@ -127,26 +127,51 @@ cp .env.example .env.local
 | `PDF_INCLUDE` | export 대상 PDF glob (기본 `**/*.pdf`) |
 | `PDF_INDEX_DIR` | sidecar md 저장 폴더 (기본 `.pdf-index`). `npm run index`에 자동 포함 |
 | `PDF_HYBRID` | 스캔 PDF OCR 시 `docling-fast` (hybrid 서버 필요) |
+| `PDF_HYBRID_URL` | hybrid OCR 서버 URL (기본 `http://127.0.0.1:5002`) |
+| `PDF_HYBRID_MODE` | 이미지 PDF OCR 모드 (기본 `full`) |
 
 ---
 
 ## PDF 검색 + Obsidian READ
 
 텍스트 PDF는 **OpenDataLoader**로 md sidecar를 만들고, 기존 **bge-m3 + rerank** 파이프로 검색합니다.  
+**이미지/스캔 PDF**는 hybrid OCR(`odp-hybrid` Docker)이 페이지 안 **글자를 추출** → sidecar md → **텍스트만** 임베딩합니다 (vision 임베딩 아님).  
 검색 결과 `path`는 **원본 PDF**를 가리키며, `pageNumber`가 있으면 Obsidian PDF++에서 `#page=N`으로 열 수 있습니다.
 
 ```bash
 # Java 11+ 필요: java -version
-npm run pdf:export    # vault PDF → .pdf-index/**/*.md
-npm run index         # sidecar + notion md 함께 인덱싱
+npm run pdf:hybrid:up   # 스캔 PDF OCR 서버 (최초 1회, :5002)
+npm run pdf:export      # vault PDF → .pdf-index/**/*.md
+npm run index           # sidecar + notion md 함께 인덱싱 (기본 증분)
+```
+
+이미지 → PDF 테스트 예:
+
+```bash
+# png/jpeg/gif → PDF (macOS sips)
+sips -s format pdf image.png --out test_pdf/doc.pdf
+npm run pdf:export && npm run index
 ```
 
 | 단계 | 도구 |
 |------|------|
 | PDF → 텍스트 | `@opendataloader/pdf` (local) |
-| 스캔 PDF OCR | hybrid + `--ocr-lang ko,en` → `PDF_HYBRID=docling-fast` |
+| 스캔 PDF OCR | `npm run pdf:hybrid:up` → `PDF_HYBRID=docling-fast` · `PDF_HYBRID_URL` |
 | 검색 | bge-m3 · Qdrant · bge-reranker (Notion과 동일) |
 | 화면 READ | Obsidian PDF++ (`[[file.pdf#page=5]]`) |
+
+Sidecar / Qdrant에 들어간 **텍스트 확인**:
+
+```bash
+# OCR sidecar 원문
+cat {VAULT_PATH}/.pdf-index/test_pdf/논문_test_004.pdf.md
+
+# Qdrant payload (임베딩된 청크 본문)
+curl -s http://127.0.0.1:6333/collections/company-rag/points/scroll \
+  -H 'Content-Type: application/json' \
+  -d '{"filter":{"must":[{"key":"path","match":{"value":"test_pdf/논문_test_004.pdf"}}]},"limit":5,"with_payload":true}' \
+  | python3 -c "import sys,json; [print(p['payload'].get('content','')) for p in json.load(sys.stdin)['result']['points']]"
+```
 
 Sidecar frontmatter 예:
 
@@ -166,14 +191,14 @@ source_type: pdf
 npm install
 
 npm run qdrant:up    # Qdrant Docker (최초 1회)
-npm run index
+npm run index        # 기본 증분; 전체 재인덱싱: npm run index -- --full
 npm run build-graph   # [[위키링크]]만 갱신 (임베딩 없음)
 npm run sync-index    # .company-rag/ 로 offline 스냅샷 export
 
 npm run dev           # http://localhost:3000
 ```
 
-md 추가·수정 후 `npm run index` → `npm run sync-index` 를 다시 실행합니다.
+md 추가·수정 후 `npm run index` → `npm run sync-index` 를 다시 실행합니다. 기본은 **증분 인덱싱**(`data/index-manifest.json`으로 mtime/size 비교)이며, 변경·추가·삭제된 md만 임베딩합니다. `npm run index -- --full`로 전체 재인덱싱할 수 있습니다.
 
 ### Qdrant (로컬 Docker)
 
@@ -193,13 +218,31 @@ npm run qdrant:down
 
 **초기 풀 인덱스**는 로컬 embed(`Xenova/bge-m3`)가 병목입니다. vault 전체(`**/*.md`, 수천 파일)면 **수 시간** 걸릴 수 있습니다. Qdrant upsert는 임베딩이 끝난 뒤 배치로 진행됩니다.
 
-> **`EMBEDDING_MODEL` 또는 차원을 바꾼 뒤에는 반드시 `npm run index`로 재인덱싱**해야 합니다. Qdrant 컬렉션이 새 차원으로 다시 만들어집니다.
+> **`EMBEDDING_MODEL` 또는 차원을 바꾼 뒤에는 `npm run index -- --full`로 전체 재인덱싱**해야 합니다. Qdrant 컬렉션이 새 차원으로 다시 만들어집니다.
 
-> v0.3 예정: 변경 파일만 재인덱싱 (증분). v0.2는 매번 풀 스캔.
+증분 인덱싱은 `data/index-manifest.json`에 파일별 `mtimeMs`, `size`, Qdrant `path` 스냅샷을 저장합니다. PDF sidecar는 Qdrant에 `source_pdf` 경로로 저장되므로 manifest에도 해당 경로를 추적합니다. 그래프는 매 실행 시 전체 md를 읽어 갱신하지만 임베딩은 변경 파일만 수행합니다.
 
 ---
 
 ## 인덱싱 기준
+
+### 증분 인덱싱 (v0.3+)
+
+`npm run index` 기본값은 **증분**입니다. `data/index-manifest.json`에 파일별 `mtimeMs`, `size`, `chunkCount`, Qdrant `path` 스냅샷을 두고 diff합니다.
+
+| diff | 동작 |
+|------|------|
+| added / modified | 해당 md만 청킹 + 임베딩 → Qdrant patch |
+| deleted | manifest의 `qdrantPaths`로 Qdrant delete |
+| unchanged | 스킵 (임베딩 없음) |
+
+전체 재인덱싱이 필요한 경우:
+
+- 최초 실행 (manifest 없음)
+- `EMBEDDING_MODEL` / 차원 변경
+- `npm run index -- --full`
+
+PDF sidecar는 Qdrant `path`가 **`source_pdf`** (원본 PDF 경로)이므로 manifest도 sidecar md 키 + `qdrantPaths: [source_pdf]` 형태로 추적합니다. 그래프는 매 실행 시 전체 md를 읽어 갱신하지만 **임베딩은 변경 파일만** 수행합니다.
 
 ### 어떤 파일이 대상인가
 
@@ -311,6 +354,7 @@ INDEX_INCLUDE=**/*.md
 |------|------|
 | **Qdrant** `company-rag` | 청크 텍스트 + 임베딩 벡터 + payload (`path`, `title`, `content`, `startLine`, `rootFolder`) |
 | `data/vector-meta.json` | 인덱스 메타 (`indexedAt`, `chunkCount`) |
+| `data/index-manifest.json` | 증분 인덱싱 스냅샷 (mtime/size/qdrantPaths) |
 | `graph.json` | 같은 md들의 `[[wikilink]]` 노드·엣지 |
 
 `npm run index`는 **vectors + graph** 둘 다 갱신합니다. `npm run build-graph`는 wikilink 그래프만 다시 빌드합니다.
@@ -377,6 +421,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 |------|------|
 | **Qdrant** (Docker) | 청크 + embedding (시멘틱 검색) |
 | `data/vector-meta.json` | 인덱스 메타 |
+| `data/index-manifest.json` | 증분 인덱싱 manifest |
 | `data/graph.json` | wikilink 노드·엣지 |
 | `{VAULT_PATH}/.company-rag/vectors.json` | Obsidian offline용 스냅샷 (`sync-index`) |
 
@@ -397,7 +442,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | `tsx` | `index` · `sync-index` · `build-graph` CLI |
 | `glob` | vault md 스캔 (`INDEX_INCLUDE`) |
 | `@qdrant/js-client-rest` | Qdrant REST 클라이언트 |
-| `docker compose` | 로컬 Qdrant (`npm run qdrant:up`) |
+| `docker compose` | 로컬 Qdrant (`npm run qdrant:up`) · PDF OCR hybrid (`npm run pdf:hybrid:up`) |
 | `@notionhq/client` | `npm run notion:export` (선택) |
 
 ---

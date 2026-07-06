@@ -28,6 +28,7 @@ async function main() {
     indexDir: config.pdfIndexDir,
     hybrid: config.pdfHybrid || undefined,
     hybridUrl: config.pdfHybridUrl || undefined,
+    hybridMode: config.pdfHybrid || undefined ? config.pdfHybridMode : undefined,
   });
 
   console.log(
