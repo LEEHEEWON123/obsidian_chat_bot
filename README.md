@@ -143,6 +143,64 @@ flowchart TD
 | **Company RAG 플러그인** | Obsidian 사이드바 Lookup · `/api/search` |
 | **Next.js** (`npm run dev`) | `/api/search`, `/api/chat` |
 | **Qdrant** (Docker) | 벡터 DB · cosine HNSW 검색 |
+| **Hermes Agent** (선택) | MCP로 동일 RAG를 멀티스텝 + web/terminal과 연동 (`npm run hermes:chat`) |
+
+---
+
+## Hermes Agent (선택)
+
+[Hermes Agent](https://github.com/nousresearch/hermes-agent)를 **에이전트 CLI**로 붙이면, 같은 Qdrant 인덱스를 **여러 번 검색**하고 vault **전문 읽기**·웹 검색·로컬 터미널을 한 대화에서 쓸 수 있습니다. 웹 UI(`/api/chat`)와 **별개** 경로입니다.
+
+```mermaid
+flowchart LR
+  H[Hermes CLI] --> MCP[MCP obsidian_rag]
+  MCP --> SEARCH[obsidian_rag_search]
+  MCP --> READ[read_vault_note]
+  SEARCH --> QDRANT[(Qdrant + BGE)]
+  READ --> VAULT[vault md]
+  H --> WEB[web_search · Firecrawl]
+  H --> TERM[terminal · local]
+```
+
+| 경로 | LLM | 검색 | vault 전문 | 웹 / 터미널 |
+|------|-----|------|------------|-------------|
+| **웹 UI** (`npm run dev`) | Cursor SDK | 1회 hybrid+rerkank | 청크만 | 없음 |
+| **Hermes** (`npm run hermes:chat`) | Nous Portal (설치 시 선택) | MCP **멀티스텝** | `read_vault_note` | `web`, `terminal` |
+
+### 사전 요구
+
+1. [Hermes 설치](https://hermes-agent.nousresearch.com/) (Quick Setup → Nous Portal OAuth 권장)
+2. Qdrant 실행 + 인덱스 (`npm run qdrant:up`, `npm run index`)
+3. 셸에 `hermes`가 없으면 `source ~/.zshrc` (또는 `npm run hermes:chat`이 PATH를 보정)
+
+### 연동
+
+```bash
+npm run hermes:setup    # ~/.hermes/config.yaml에 MCP + toolsets 병합
+npm run hermes:chat     # web + terminal + mcp-obsidian_rag
+```
+
+`hermes:setup`은 `hermes/config.fragment.yaml`을 읽어 `mcp_servers.obsidian_rag`와 `platform_toolsets.cli`를 `~/.hermes/config.yaml`에 넣습니다. Hermes 설치 마법사 이후 **다시 실행**해도 됩니다.
+
+### MCP 도구
+
+| 도구 | 역할 |
+|------|------|
+| `obsidian_rag_search` | hybrid + rerank 검색 (`retrieveRelevantChunksWithMeta`와 동일 파이프라인) |
+| `read_vault_note` | vault 상대 경로로 md **전문** 읽기 (요약용) |
+
+MCP 서버만 단독 실행: `npm run mcp` (stdio, Hermes가 subprocess로 기동)
+
+### 비용 참고
+
+| 항목 | Nous 과금 |
+|------|-----------|
+| `obsidian_rag_search` / `read_vault_note` | 없음 (로컬 Qdrant + BGE) |
+| `terminal` (local) | 없음 |
+| LLM 턴 | 모델별 (설치 시 `*:free` 모델 선택 가능) |
+| `web_search` / `web_extract` | Nous hosted tool — **호출마다** 과금 가능 (Firecrawl gateway) |
+
+에이전트 지침: `hermes/AGENTS.md` → `npm run hermes:setup` 시 `~/.hermes/AGENTS.md`로 복사
 
 ---
 
@@ -497,6 +555,10 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | 명령 / 라이브러리 | 용도 |
 |-------------------|------|
 | `tsx` | `index` · `sync-index` · `build-graph` CLI |
+| `npm run mcp` | Obsidian RAG MCP 서버 (stdio) |
+| `npm run hermes:setup` | Hermes `~/.hermes/config.yaml` 연동 |
+| `npm run hermes:chat` | Hermes CLI (web + terminal + MCP) |
+| `@modelcontextprotocol/sdk` | MCP 서버 (`scripts/mcp-server.ts`) |
 | `glob` | vault md 스캔 (`INDEX_INCLUDE`) |
 | `@qdrant/js-client-rest` | Qdrant REST 클라이언트 |
 | `docker compose` | 로컬 Qdrant (`npm run qdrant:up`) · PDF OCR hybrid (`npm run pdf:hybrid:up`) |

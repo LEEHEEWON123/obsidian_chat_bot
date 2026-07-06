@@ -1,0 +1,41 @@
+# Merge into ~/.hermes/config.yaml (run: npm run hermes:setup)
+#
+# Enables only:
+#   1) Multi-step vault RAG via MCP (obsidian_rag_search, read_vault_note)
+#   3) web_search + terminal (vault-outside work)
+#
+# Prereqs: Hermes installed, Qdrant up, vault indexed (npm run index)
+
+mcp_servers:
+  obsidian_rag:
+    command: "npx"
+    args:
+      - "tsx"
+      - "{{PROJECT_ROOT}}/scripts/mcp-server.ts"
+    env:
+      VAULT_PATH: "{{VAULT_PATH}}"
+      DATA_DIR: "{{DATA_DIR}}"
+      QDRANT_URL: "{{QDRANT_URL}}"
+      QDRANT_COLLECTION: "{{QDRANT_COLLECTION}}"
+      RAG_TOP_K: "{{RAG_TOP_K}}"
+      RAG_RECALL_K: "{{RAG_RECALL_K}}"
+      RERANK_ENABLED: "{{RERANK_ENABLED}}"
+    timeout: 180
+    connect_timeout: 90
+    tools:
+      include:
+        - obsidian_rag_search
+        - read_vault_note
+      prompts: false
+      resources: false
+
+platform_toolsets:
+  cli:
+    - web
+    - terminal
+    - mcp-obsidian_rag
+
+terminal:
+  backend: local
+  cwd: "{{PROJECT_ROOT}}"
+  timeout: 120

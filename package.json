@@ -16,10 +16,14 @@
     "pdf:hybrid:logs": "docker compose --profile pdf-ocr logs -f odp-hybrid",
     "build-graph": "tsx scripts/build-graph-cli.ts",
     "notion:export": "tsx scripts/notion-export-cli.ts",
-    "pdf:export": "tsx scripts/pdf-export-cli.ts"
+    "pdf:export": "tsx scripts/pdf-export-cli.ts",
+    "mcp": "tsx scripts/mcp-server.ts",
+    "hermes:setup": "tsx scripts/hermes-setup.ts",
+    "hermes:chat": "PATH=\"$HOME/.local/bin:$PATH\" hermes chat --toolsets web,terminal,mcp-obsidian_rag"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@notionhq/client": "^5.22.0",
     "@opendataloader/pdf": "^2.4.7",
     "@qdrant/js-client-rest": "^1.18.0",
@@ -27,7 +31,8 @@
     "glob": "^13.0.6",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
