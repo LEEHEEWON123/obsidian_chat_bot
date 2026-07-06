@@ -6,7 +6,18 @@ export interface Source {
   path: string;
   title: string;
   startLine: number;
+  pageNumber?: number;
   content: string;
+}
+
+function sourceLocation(source: Source): string | null {
+  if (source.path.toLowerCase().endsWith(".pdf") && source.pageNumber) {
+    return `#page=${source.pageNumber}`;
+  }
+  if (source.startLine) {
+    return `#L${source.startLine}`;
+  }
+  return null;
 }
 
 export interface Message {
@@ -242,28 +253,24 @@ export function ChatPanel() {
               {message.role === "assistant" && message.sources?.length ? (
                 <div className="mt-3 border-t border-zinc-200 pt-3 text-xs text-zinc-600">
                   <p className="mb-2 font-medium">Sources</p>
-                  <ul className="space-y-3">
+                  <ol className="list-decimal space-y-1 pl-5">
                     {message.sources.map((source) => (
                       <li
                         key={`${source.path}-${source.startLine}`}
-                        className="rounded-lg bg-white/80 px-2 py-2"
+                        className="text-zinc-700"
                       >
-                        <p className="font-medium text-zinc-800">
-                          {source.path}
-                          {source.startLine ? `#L${source.startLine}` : ""}
-                        </p>
-                        {source.title ? (
-                          <p className="mt-0.5 text-zinc-500">{source.title}</p>
-                        ) : null}
-                        {source.content ? (
-                          <p className="mt-1 whitespace-pre-wrap text-zinc-600 leading-5">
-                            {source.content}
-                            {source.content.length >= 399 ? "…" : ""}
-                          </p>
+                        <span className="font-medium text-zinc-800">
+                          {source.title || source.path}
+                        </span>
+                        {sourceLocation(source) ? (
+                          <span className="text-zinc-400">
+                            {" "}
+                            {sourceLocation(source)}
+                          </span>
                         ) : null}
                       </li>
                     ))}
-                  </ul>
+                  </ol>
                 </div>
               ) : null}
             </div>

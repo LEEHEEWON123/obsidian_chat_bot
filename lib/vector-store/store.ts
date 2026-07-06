@@ -31,6 +31,7 @@ interface ChunkPayload extends Record<string, unknown> {
   title: string;
   content: string;
   startLine: number;
+  pageNumber?: number;
   rootFolder?: string;
 }
 
@@ -59,7 +60,7 @@ function sanitizePayloadText(text: string): string {
 
 function payloadFromChunk(chunk: IndexedChunk): ChunkPayload {
   const path = sanitizePayloadText(chunk.path);
-  return {
+  const payload: ChunkPayload = {
     id: chunk.id,
     path,
     title: sanitizePayloadText(chunk.title),
@@ -67,6 +68,10 @@ function payloadFromChunk(chunk: IndexedChunk): ChunkPayload {
     startLine: chunk.startLine,
     rootFolder: rootFolderFromPath(path),
   };
+  if (chunk.pageNumber !== undefined) {
+    payload.pageNumber = chunk.pageNumber;
+  }
+  return payload;
 }
 
 function chunkFromRecord(
@@ -79,6 +84,8 @@ function chunkFromRecord(
     title: payload.title,
     content: payload.content,
     startLine: payload.startLine,
+    pageNumber:
+      typeof payload.pageNumber === "number" ? payload.pageNumber : undefined,
     embedding,
   };
 }

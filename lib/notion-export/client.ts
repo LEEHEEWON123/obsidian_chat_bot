@@ -37,6 +37,17 @@ export function normalizeNotionId(raw: string): string {
   throw new Error(`Invalid Notion page ID: ${raw}`);
 }
 
+/** Prefer pages API when root looks like a page URL (avoids validation_error warn). */
+export function notionRootProbeStrategy(
+  raw: string,  
+): "page-first" | "database-first" {
+  if (/\/p\/[0-9a-f]{32}/i.test(raw)) return "page-first";
+  if (/notion\.so\/[^?\s]*[0-9a-f]{32}/i.test(raw)) return "page-first";
+  // Comma-separated bare UUIDs (NOTION_PAGE_IDS) often name databases
+  if (/^[0-9a-f,\s-]+$/i.test(raw.trim())) return "database-first";
+  return "page-first";
+}
+
 export function parseNotionPageIds(value: string): string[] {
   return value
     .split(",")

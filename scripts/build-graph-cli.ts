@@ -3,6 +3,11 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 
 import {
+  buildNotionIdLookup,
+  extractNotionPageIds,
+  resolveNotionPageId,
+} from "@/lib/graph/notion-links";
+import {
   buildLinkLookup,
   extractWikilinks,
   resolveWikilinkTarget,
@@ -21,6 +26,10 @@ for (const line of readFileSync(".env.local", "utf8").split("\n")) {
   }
 }
 
+function edgeKey(from: string, to: string, kind: GraphEdge["kind"]): string {
+  return `${from}->${to}:${kind}`;
+}
+
 async function main() {
   const config = getConfig();
   if (!config.vaultPath) {
@@ -33,20 +42,40 @@ async function main() {
     toRelativePath(config.vaultPath, file),
   );
   const linkLookup = buildLinkLookup(relativePaths);
-  const edgeSet = new Set<string>();
-  const edges: GraphEdge[] = [];
 
+  const fileEntries: Array<{ path: string; raw: string }> = [];
   for (const filePath of files) {
     const from = toRelativePath(config.vaultPath, filePath);
     const raw = await readFile(filePath, "utf8");
+    fileEntries.push({ path: from, raw });
+  }
 
+  const notionLookup = buildNotionIdLookup(fileEntries);
+  const edgeSet = new Set<string>();
+  const edges: GraphEdge[] = [];
+  let unresolvedNotionLinks = 0;
+
+  for (const { path: from, raw } of fileEntries) {
     for (const link of extractWikilinks(raw)) {
       const to = resolveWikilinkTarget(link, linkLookup);
       if (!to || to === from) continue;
-      const key = `${from}->${to}`;
+      const key = edgeKey(from, to, "wikilink");
       if (edgeSet.has(key)) continue;
       edgeSet.add(key);
       edges.push({ from, to, kind: "wikilink" });
+    }
+
+    for (const pageId of extractNotionPageIds(raw)) {
+      const to = resolveNotionPageId(pageId, notionLookup);
+      if (!to) {
+        unresolvedNotionLinks++;
+        continue;
+      }
+      if (to === from) continue;
+      const key = edgeKey(from, to, "notion_link");
+      if (edgeSet.has(key)) continue;
+      edgeSet.add(key);
+      edges.push({ from, to, kind: "notion_link" });
     }
   }
 
@@ -59,11 +88,17 @@ async function main() {
   vaultGraph.replaceAll(relativePaths, edges);
   await vaultGraph.save();
 
+  const wikilinkEdges = edges.filter((edge) => edge.kind === "wikilink").length;
+  const notionEdges = edges.filter((edge) => edge.kind === "notion_link").length;
+
   console.log(
     JSON.stringify(
       {
         nodes: relativePaths.length,
         edges: edges.length,
+        wikilinkEdges,
+        notionLinkEdges: notionEdges,
+        unresolvedNotionLinks,
         savedTo: [join(config.dataDir, "graph.json"), join(vaultDir, "graph.json")],
       },
       null,

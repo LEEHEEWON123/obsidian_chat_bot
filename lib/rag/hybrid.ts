@@ -3,7 +3,7 @@ import type { IndexedChunk } from "@/lib/vector-store/store";
 export interface ScoredChunk {
   chunk: IndexedChunk;
   score: number;
-  source: "keyword" | "semantic";
+  source: "keyword" | "semantic" | "note" | "link";
 }
 
 export function mergeHybridResults(options: {

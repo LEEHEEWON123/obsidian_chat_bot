@@ -1,8 +1,8 @@
 import { getConfig } from "@/lib/config";
 import { embedText } from "@/lib/embeddings/local";
-import { rerankChunks } from "@/lib/rerank/local";
 import { GraphStore } from "@/lib/graph/store";
-import { expandResultsWithGraph } from "@/lib/rag/graph-expand";
+import { appendLinkedContextChunks } from "@/lib/rag/note-context";
+import { rerankChunks } from "@/lib/rerank/local";
 import { mergeHybridResults, type ScoredChunk } from "@/lib/rag/hybrid";
 import { extractDatesFromQuery } from "@/lib/rag/query-dates";
 import { parseQuery, scoreKeywordMatch } from "@/lib/rag/query-hints";
@@ -17,6 +17,7 @@ export interface RetrievedSource {
   path: string;
   title: string;
   startLine: number;
+  pageNumber?: number;
   content: string;
 }
 
@@ -25,11 +26,7 @@ export const SOURCE_SNIPPET_MAX = 400;
 export interface RetrievedChunkMeta {
   chunk: IndexedChunk;
   score: number;
-  source: "keyword" | "semantic" | "rerank" | "graph";
-}
-
-function chunkFilePath(chunk: IndexedChunk): string {
-  return chunk.path.replace(/\\/g, "/");
+  source: "keyword" | "semantic" | "rerank" | "graph" | "note" | "link";
 }
 
 function dot(a: number[], b: number[]): number {
@@ -43,6 +40,7 @@ export async function retrieveRelevantChunksWithMeta(options: {
   dataDir: string;
   topK: number;
   recallK?: number;
+  contextPath?: string;
 }): Promise<RetrievedChunkMeta[]> {
   const config = getConfig();
   const recallK = options.recallK ?? config.recallK;
@@ -92,11 +90,26 @@ export async function retrieveRelevantChunksWithMeta(options: {
     source: "semantic",
   }));
 
-  const candidates = mergeHybridResults({
+  let candidates = mergeHybridResults({
     keyword: keywordScored,
     semantic: semanticScored,
     limit: recallK,
   });
+
+  const graph = await GraphStore.load(options.dataDir);
+  const hasGraphContext =
+    graph.getMeta().edgeCount > 0 || options.contextPath !== undefined;
+
+  if (hasGraphContext) {
+    candidates = await appendLinkedContextChunks({
+      store,
+      graph,
+      candidates,
+      contextPath: options.contextPath,
+      hops: config.graphExpandHops,
+      maxNeighborPaths: config.noteContextMaxPaths,
+    });
+  }
 
   if (candidates.length === 0) return [];
 
@@ -107,9 +120,6 @@ export async function retrieveRelevantChunksWithMeta(options: {
       topK: options.topK,
     });
 
-    // The cross-encoder judges query/document relevance directly. Drop
-    // chunks below the relevance floor so weak matches are not surfaced
-    // as if they answered the question.
     const relevant = reranked.filter(
       (item) => item.score >= config.rerankMinScore,
     );
@@ -121,34 +131,11 @@ export async function retrieveRelevantChunksWithMeta(options: {
     }));
   }
 
-  const graph = await GraphStore.load(options.dataDir);
-  if (graph.getMeta().edgeCount === 0) {
-    return candidates.slice(0, options.topK).map((item) => ({
-      chunk: item.chunk,
-      score: item.score,
-      source: item.source,
-    }));
-  }
-
-  const seedPaths = [
-    ...new Set(candidates.map((item) => chunkFilePath(item.chunk))),
-  ];
-  const neighborPaths = graph.expandNodes(seedPaths, 1);
-  const lookupPaths = [...new Set([...seedPaths, ...neighborPaths])];
-  const lookupChunks = await store.getChunksByPaths(lookupPaths);
-
-  return expandResultsWithGraph({
-    semanticResults: candidates,
-    graph,
-    allChunks: lookupChunks,
-    maxGraphAdds: options.topK,
-  })
-    .slice(0, options.topK)
-    .map((item) => ({
-      chunk: item.chunk,
-      score: item.score,
-      source: item.source,
-    }));
+  return candidates.slice(0, options.topK).map((item) => ({
+    chunk: item.chunk,
+    score: item.score,
+    source: item.source,
+  }));
 }
 
 export async function retrieveRelevantChunks(options: {
@@ -220,6 +207,7 @@ export function toSources(
       path: chunk.path,
       title: chunk.title,
       startLine: chunk.startLine,
+      pageNumber: chunk.pageNumber,
       content: chunk.content.slice(0, maxContentLength),
     });
   }

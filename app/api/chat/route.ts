@@ -14,6 +14,8 @@ export const runtime = "nodejs";
 interface ChatRequestBody {
   message?: string;
   history?: ChatMessage[];
+  /** Vault-relative path of the active note (Obsidian). Linked pages are included via graph. */
+  contextPath?: string;
 }
 
 function sse(data: Record<string, unknown>): string {
@@ -36,6 +38,7 @@ export async function POST(request: Request) {
       query: message,
       dataDir: config.dataDir,
       topK: config.topK,
+      contextPath: body.contextPath?.trim() || undefined,
     });
 
     const chunks = retrieved.map((item) => item.chunk);

@@ -2,7 +2,9 @@ import { createHash } from "crypto";
 
 import { QdrantClient } from "@qdrant/js-client-rest";
 
-export const EMBEDDING_DIMENSION = 384;
+import { EMBEDDING_DIMENSION } from "@/lib/embeddings/local";
+
+export { EMBEDDING_DIMENSION };
 
 export function chunkToPointId(id: string): string {
   const hash = createHash("md5").update(id).digest("hex");

@@ -11,6 +11,8 @@ export interface DocumentChunk {
   title: string;
   content: string;
   startLine: number;
+  /** PDF page (from opendataloader page separators). */
+  pageNumber?: number;
 }
 
 const CHUNK_SIZE = 800;
@@ -58,6 +60,13 @@ function chunkTitle(documentTitle: string, sectionHeading: string): string {
     return sectionHeading;
   }
   return `${documentTitle} — ${sectionHeading}`;
+}
+
+function pageNumberFromHeading(heading: string): number | undefined {
+  const match = heading.match(/^Page\s+(\d+)$/i);
+  if (!match) return undefined;
+  const page = Number(match[1]);
+  return Number.isFinite(page) && page > 0 ? page : undefined;
 }
 
 export function chunkMarkdown(relativePath: string, raw: string): DocumentChunk[] {
@@ -130,6 +139,7 @@ export function chunkMarkdown(relativePath: string, raw: string): DocumentChunk[
         title: chunkTitle(documentTitle, section.heading),
         content,
         startLine: section.startLine,
+        pageNumber: pageNumberFromHeading(section.heading),
       });
     });
   }

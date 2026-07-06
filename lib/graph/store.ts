@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 
-export type GraphEdgeKind = "wikilink";
+export type GraphEdgeKind = "wikilink" | "notion_link";
 
 export interface GraphEdge {
   from: string;

@@ -81,6 +81,7 @@ flowchart LR
 |------|------|
 | vault md (`INDEX_INCLUDE`) | 인덱싱 대상 (예: `**/*.md`, `notion/**/*.md`) |
 | `npm run index` | md → 임베딩 → **Qdrant** + graph |
+| `npm run pdf:export` | PDF → `.pdf-index/**/*.md` sidecar (Java 11+, [OpenDataLoader](https://github.com/opendataloader-project/opendataloader-pdf)) |
 | `npm run sync-index` | Qdrant → vault `.company-rag/vectors.json` (offline용) |
 | **Company RAG 플러그인** | Obsidian 사이드바 Lookup · `/api/search` 호출 |
 | API offline | 플러그인이 `.company-rag/` 로컬 키워드 + 그래프 fallback |
@@ -93,6 +94,8 @@ flowchart LR
 ```
 {VAULT_PATH}/
 ├── notion/              # 회사 문서 md (INDEX_INCLUDE 대상)
+├── *.pdf                # PDF 원본 (PDF_INCLUDE)
+├── .pdf-index/          # pdf:export → 검색용 sidecar md
 ├── .company-rag/        # npm run sync-index → vectors.json, graph.json
 └── .obsidian/plugins/company-rag/   # Obsidian 플러그인
 ```
@@ -119,6 +122,39 @@ cp .env.example .env.local
 | `RERANK_MODEL` | rerank ONNX 모델 (기본 `woxpas-ai/bge-reranker-v2-m3-onnx`) |
 | `RERANK_BATCH_SIZE` | rerank 배치 크기 (기본 `8`) |
 | `RERANK_MIN_SCORE` | rerank **관련성 하한** (raw logit, 기본 `0`). 미만 청크는 검색 결과에서 제외 |
+| `PDF_INCLUDE` | export 대상 PDF glob (기본 `**/*.pdf`) |
+| `PDF_INDEX_DIR` | sidecar md 저장 폴더 (기본 `.pdf-index`). `npm run index`에 자동 포함 |
+| `PDF_HYBRID` | 스캔 PDF OCR 시 `docling-fast` (hybrid 서버 필요) |
+
+---
+
+## PDF 검색 + Obsidian READ
+
+텍스트 PDF는 **OpenDataLoader**로 md sidecar를 만들고, 기존 **bge-m3 + rerank** 파이프로 검색합니다.  
+검색 결과 `path`는 **원본 PDF**를 가리키며, `pageNumber`가 있으면 Obsidian PDF++에서 `#page=N`으로 열 수 있습니다.
+
+```bash
+# Java 11+ 필요: java -version
+npm run pdf:export    # vault PDF → .pdf-index/**/*.md
+npm run index         # sidecar + notion md 함께 인덱싱
+```
+
+| 단계 | 도구 |
+|------|------|
+| PDF → 텍스트 | `@opendataloader/pdf` (local) |
+| 스캔 PDF OCR | hybrid + `--ocr-lang ko,en` → `PDF_HYBRID=docling-fast` |
+| 검색 | bge-m3 · Qdrant · bge-reranker (Notion과 동일) |
+| 화면 READ | Obsidian PDF++ (`[[file.pdf#page=5]]`) |
+
+Sidecar frontmatter 예:
+
+```yaml
+---
+title: "보고서"
+source_pdf: documents/report.pdf
+source_type: pdf
+---
+```
 
 ---
 
@@ -153,7 +189,9 @@ npm run qdrant:down
 
 **대시보드:** [http://localhost:6333/dashboard](http://localhost:6333/dashboard) · 컬렉션 `company-rag`
 
-**초기 풀 인덱스**는 로컬 embed(`Xenova`)가 병목입니다. vault 전체(`**/*.md`, 수천 파일)면 **수 시간** 걸릴 수 있습니다. Qdrant upsert는 임베딩이 끝난 뒤 배치로 진행됩니다.
+**초기 풀 인덱스**는 로컬 embed(`Xenova/bge-m3`)가 병목입니다. vault 전체(`**/*.md`, 수천 파일)면 **수 시간** 걸릴 수 있습니다. Qdrant upsert는 임베딩이 끝난 뒤 배치로 진행됩니다.
+
+> **`EMBEDDING_MODEL` 또는 차원을 바꾼 뒤에는 반드시 `npm run index`로 재인덱싱**해야 합니다. Qdrant 컬렉션이 새 차원으로 다시 만들어집니다.
 
 > v0.3 예정: 변경 파일만 재인덱싱 (증분). v0.2는 매번 풀 스캔.
 
@@ -188,7 +226,7 @@ INDEX_INCLUDE=**/*.md
   → ③ # 헤딩 기준 섹션 분리
   → ④ 섹션 본문이 800자 초과 시 overlap 120으로 분할
   → ⑤ content/title 조립
-  → ⑥ content 임베딩 (384차원)
+  → ⑥ content 임베딩 (1024차원)
   → Qdrant (vector + payload)
 ```
 
@@ -204,7 +242,7 @@ INDEX_INCLUDE=**/*.md
 | 최대 청크 크기 | **800자** (섹션 **본문** 기준) |
 | 겹침 (overlap) | **120자** (800자 초과 섹션을 여러 청크로 자를 때만) |
 | 분할 방식 | 문단/문장이 아니라 **글자 수** 기준 기계적 슬라이스 |
-| 임베딩 대상 | payload **`content`** 전체 (`Xenova/all-MiniLM-L6-v2`, 384차원) |
+| 임베딩 대상 | payload **`content`** 전체 (`Xenova/bge-m3`, 1024차원) |
 | 청크 `content` | `# 문서제목`(섹션과 다를 때) + `# 섹션제목` + 본문 조각 |
 | payload `title` | `문서제목 — 섹션제목` (같으면 섹션만) |
 | 전처리 후 본문 없음 | 해당 파일 **청크 0개** (인덱스에서 스킵) |
@@ -251,7 +289,7 @@ INDEX_INCLUDE=**/*.md
 
 | 필드 | 설명 |
 |------|------|
-| **vector** | `content` 임베딩 (384차원, cosine) |
+| **vector** | `content` 임베딩 (1024차원, cosine) |
 | `path` | vault 기준 상대경로 (예: `notion/foo.md`) |
 | `title` | UI·키워드 검색용 |
 | `content` | 임베딩·리랭크·채팅 스니펫에 사용하는 전체 텍스트 |
@@ -315,7 +353,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | 단계 | 구현 | 모델 / 저장 |
 |------|------|-------------|
 | Chunking | `lib/indexer/chunk.ts`, `preprocess.ts` | 전처리 → `#` 섹션 → 800자/overlap 120 → `content` 임베딩 |
-| Embedding | `lib/embeddings/local.ts` | **`Xenova/all-MiniLM-L6-v2`** · 384차원 (로컬 bi-encoder) |
+| Embedding | `lib/embeddings/local.ts` | **`Xenova/bge-m3`** · 1024차원 (로컬 bi-encoder, multilingual) |
 | 1차 Hybrid | `lib/rag/query-hints.ts` · `lib/rag/hybrid.ts` | 키워드 + Qdrant 시맨틱 → merge `RAG_RECALL_K` |
 | 2차 Rerank | `lib/rerank/local.ts` | **`BAAI/bge-reranker-v2-m3`** cross-encoder · `RERANK_MIN_SCORE` 미만 제외 |
 | Graph expand | `lib/graph/` · `lib/rag/graph-expand.ts` | rerank **비활성** 시 wikilink 1-hop (기본은 rerank 우선) |
@@ -325,11 +363,11 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 
 | 용도 | Hugging Face / 설정 | 비고 |
 |------|---------------------|------|
-| 인덱싱·시맨틱 검색 | [Xenova/all-MiniLM-L6-v2](https://huggingface.co/Xenova/all-MiniLM-L6-v2) | `@xenova/transformers`, 384-dim cosine |
+| 인덱싱·시맨틱 검색 | [Xenova/bge-m3](https://huggingface.co/Xenova/bge-m3) | `@xenova/transformers`, 1024-dim cosine, `EMBEDDING_MODEL` |
 | Rerank | [BAAI/bge-reranker-v2-m3](https://huggingface.co/BAAI/bge-reranker-v2-m3) | ONNX via `RERANK_MODEL`, query+passage 쌍 scoring |
 | 채팅 LLM | Cursor SDK (`CURSOR_MODEL`) | API key 필요 |
 
-> Rerank 모델 **첫 로드** 시 ONNX 가중치 다운로드(~500MB)로 수십 초 걸릴 수 있습니다.
+> Rerank·Embedding 모델 **첫 로드** 시 ONNX 가중치 다운로드(bge-m3 ~2.2GB, reranker ~500MB)로 수 분 걸릴 수 있습니다.
 
 ### 저장소
 

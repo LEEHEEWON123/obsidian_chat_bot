@@ -12,12 +12,28 @@ export async function scanMarkdownFiles(
   vaultPath: string,
   pattern: string,
 ): Promise<string[]> {
-  const files = await glob(pattern, {
-    cwd: vaultPath,
-    absolute: true,
-    nodir: true,
-    ignore: IGNORED,
-  });
+  const patterns = pattern
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const files: string[] = [];
+
+  for (const item of patterns) {
+    const matched = await glob(item, {
+      cwd: vaultPath,
+      absolute: true,
+      nodir: true,
+      ignore: IGNORED,
+    });
+
+    for (const filePath of matched) {
+      if (seen.has(filePath)) continue;
+      seen.add(filePath);
+      files.push(filePath);
+    }
+  }
 
   return files.sort();
 }

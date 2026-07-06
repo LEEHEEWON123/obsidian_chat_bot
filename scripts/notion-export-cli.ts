@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import {
   createNotionClient,
   normalizeNotionId,
+  notionRootProbeStrategy,
   parseNotionPageIds,
 } from "@/lib/notion-export/client";
 import { fetchNotionPages } from "@/lib/notion-export/fetch-pages";
@@ -26,7 +27,7 @@ async function main() {
     process.env.NOTION_PAGE_IDS;
   const vaultPath = process.env.VAULT_PATH;
   const outputDir = process.env.NOTION_EXPORT_DIR ?? "notion";
-  const maxPages = Number(process.env.NOTION_MAX_PAGES ?? 500);
+  const maxPages = Number(process.env.NOTION_MAX_PAGES ?? 2000);
 
   if (!apiKey) {
     throw new Error("NOTION_API_KEY is not set in .env.local");
@@ -52,6 +53,7 @@ async function main() {
   const notion = createNotionClient(apiKey);
   const { pages, warnings } = await fetchNotionPages(notion, rootIds, {
     maxPages,
+    rootProbe: notionRootProbeStrategy(rootRaw),
   });
 
   console.log(`Fetched ${pages.length} pages, writing markdown...`);

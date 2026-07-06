@@ -12,11 +12,13 @@
     "qdrant:up": "docker compose up -d",
     "qdrant:down": "docker compose down",
     "build-graph": "tsx scripts/build-graph-cli.ts",
-    "notion:export": "tsx scripts/notion-export-cli.ts"
+    "notion:export": "tsx scripts/notion-export-cli.ts",
+    "pdf:export": "tsx scripts/pdf-export-cli.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",
     "@notionhq/client": "^5.22.0",
+    "@opendataloader/pdf": "^2.4.7",
     "@qdrant/js-client-rest": "^1.18.0",
     "@xenova/transformers": "^2.17.2",
     "glob": "^13.0.6",

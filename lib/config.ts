@@ -3,23 +3,49 @@ export interface AppConfig {
   cursorApiKey: string;
   cursorModel: string;
   indexInclude: string;
+  pdfInclude: string;
+  pdfIndexDir: string;
+  pdfHybrid: string;
+  pdfHybridUrl: string;
   topK: number;
   recallK: number;
   rerankEnabled: boolean;
   rerankModel: string;
   rerankBatchSize: number;
   rerankMinScore: number;
+  graphExpandHops: number;
+  noteContextMaxPaths: number;
   dataDir: string;
   qdrantUrl: string;
   qdrantCollection: string;
 }
 
+function buildIndexInclude(base: string, pdfIndexDir: string): string {
+  const normalized = pdfIndexDir.replace(/\\/g, "/").replace(/\/$/, "");
+  if (!normalized) return base;
+
+  const pdfPattern = `${normalized}/**/*.md`;
+  if (base.includes(normalized)) return base;
+  if (!base.trim()) return pdfPattern;
+  return `${base},${pdfPattern}`;
+}
+
 export function getConfig(): AppConfig {
+  const pdfIndexDir = process.env.PDF_INDEX_DIR ?? ".pdf-index";
+  const indexInclude = buildIndexInclude(
+    process.env.INDEX_INCLUDE ?? "**/*.md",
+    process.env.PDF_INDEX_ENABLED === "false" ? "" : pdfIndexDir,
+  );
+
   return {
     vaultPath: process.env.VAULT_PATH ?? "",
     cursorApiKey: process.env.CURSOR_API_KEY ?? "",
     cursorModel: process.env.CURSOR_MODEL ?? "composer-2.5",
-    indexInclude: process.env.INDEX_INCLUDE ?? "**/*.md",
+    indexInclude,
+    pdfInclude: process.env.PDF_INCLUDE ?? "**/*.pdf",
+    pdfIndexDir,
+    pdfHybrid: process.env.PDF_HYBRID ?? "",
+    pdfHybridUrl: process.env.PDF_HYBRID_URL ?? "",
     topK: Number(process.env.RAG_TOP_K ?? 5),
     recallK: Number(process.env.RAG_RECALL_K ?? 50),
     rerankEnabled: process.env.RERANK_ENABLED !== "false",
@@ -27,6 +53,8 @@ export function getConfig(): AppConfig {
       process.env.RERANK_MODEL ?? "woxpas-ai/bge-reranker-v2-m3-onnx",
     rerankBatchSize: Number(process.env.RERANK_BATCH_SIZE ?? 8),
     rerankMinScore: Number(process.env.RERANK_MIN_SCORE ?? 0),
+    graphExpandHops: Number(process.env.GRAPH_EXPAND_HOPS ?? 1),
+    noteContextMaxPaths: Number(process.env.NOTE_CONTEXT_MAX_PATHS ?? 10),
     dataDir: process.env.DATA_DIR ?? "data",
     qdrantUrl: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
     qdrantCollection: process.env.QDRANT_COLLECTION ?? "company-rag",

@@ -5,6 +5,7 @@ import { isNotionClientError } from "@notionhq/client";
 import {
   extractLinkedTargets,
 } from "@/lib/notion-export/blocks-to-text";
+import { extractNotionPageIds } from "@/lib/graph/notion-links";
 import {
   extractPageTitle,
   propertiesToText,
@@ -168,30 +169,84 @@ function enqueueChildBlocks(
   }
 }
 
-async function listTopLevelBlocks(
+const BLOCK_RECURSE_MAX_DEPTH = 12;
+
+async function listChildBlocks(
   notion: Client,
   blockId: string,
-): Promise<BlockObjectResponse[]> {
+  cursor?: string,
+): Promise<{ blocks: BlockObjectResponse[]; nextCursor?: string }> {
   const blocks: BlockObjectResponse[] = [];
+
+  const response = await notion.blocks.children.list({
+    block_id: formatId(blockId),
+    start_cursor: cursor,
+    page_size: 100,
+  });
+
+  for (const block of response.results) {
+    if ("type" in block) {
+      blocks.push(block as BlockObjectResponse);
+    }
+  }
+
+  return {
+    blocks,
+    nextCursor: response.has_more
+      ? (response.next_cursor ?? undefined)
+      : undefined,
+  };
+}
+
+/** child_page/child_database are separate queue items — never recurse into them. */
+function blockContainsOwnPage(block: BlockObjectResponse): boolean {
+  return block.type === "child_page" || block.type === "child_database";
+}
+
+/**
+ * Walk nested layout blocks (columns, toggles, callouts, etc.) of THE CURRENT
+ * page only. Stops at child_page/child_database so scanning one page does not
+ * descend into the whole workspace tree.
+ */
+async function listBlocksRecursive(
+  notion: Client,
+  blockId: string,
+  depth = 0,
+): Promise<BlockObjectResponse[]> {
+  const collected: BlockObjectResponse[] = [];
   let cursor: string | undefined;
 
   do {
-    const response = await notion.blocks.children.list({
-      block_id: formatId(blockId),
-      start_cursor: cursor,
-      page_size: 100,
-    });
+    const { blocks, nextCursor } = await listChildBlocks(notion, blockId, cursor);
+    cursor = nextCursor;
 
-    for (const block of response.results) {
-      if ("type" in block) {
-        blocks.push(block as BlockObjectResponse);
+    for (const block of blocks) {
+      collected.push(block);
+
+      if (
+        block.has_children &&
+        !blockContainsOwnPage(block) &&
+        depth < BLOCK_RECURSE_MAX_DEPTH
+      ) {
+        const nested = await listBlocksRecursive(notion, block.id, depth + 1);
+        collected.push(...nested);
       }
     }
-
-    cursor = response.has_more ? (response.next_cursor ?? undefined) : undefined;
   } while (cursor);
 
-  return blocks;
+  return collected;
+}
+
+function enqueueMarkdownPageLinks(
+  queue: QueueItem[],
+  visited: Set<string>,
+  queued: Set<string>,
+  kindCache: Map<string, NotionKind>,
+  content: string,
+): void {
+  for (const pageId of extractNotionPageIds(content)) {
+    enqueueUnique(queue, visited, queued, kindCache, { id: pageId, kind: "page" });
+  }
 }
 
 async function listDataSourcePageIds(
@@ -263,16 +318,16 @@ async function resolveRootItems(
   maxPages: number,
   warnings: string[],
   kindCache: Map<string, NotionKind>,
+  rootProbe: "page-first" | "database-first" = "page-first",
 ): Promise<QueueItem[]> {
   const items: QueueItem[] = [];
 
   for (const rootId of rootIds) {
-    // DB URL in NOTION_PAGE_IDS → databases API first (no pages.retrieve warn)
     const kind = await resolveNotionKind(
       notion,
       rootId,
       kindCache,
-      "database-first",
+      rootProbe,
     );
 
     if (kind === "database") {
@@ -328,9 +383,10 @@ async function fetchPageDocument(
 export async function fetchNotionPages(
   notion: Client,
   rootPageIds: string[],
-  options?: { maxPages?: number },
+  options?: { maxPages?: number; rootProbe?: "page-first" | "database-first" },
 ): Promise<NotionFetchResult> {
-  const maxPages = options?.maxPages ?? 500;
+  const maxPages = options?.maxPages ?? 2000;
+  const rootProbe = options?.rootProbe ?? "page-first";
   const warnings: string[] = [];
   const kindCache = new Map<string, NotionKind>();
   const queue = await resolveRootItems(
@@ -339,6 +395,7 @@ export async function fetchNotionPages(
     maxPages,
     warnings,
     kindCache,
+    rootProbe,
   );
   const visited = new Set<string>();
   const queued = new Set(queue.map((item) => item.id));
@@ -347,6 +404,8 @@ export async function fetchNotionPages(
   if (queue.length === 0) {
     return { pages, warnings };
   }
+
+  console.log(`[notion] queue seeded with ${queue.length} item(s), exporting...`);
 
   while (queue.length > 0 && pages.length < maxPages) {
     const item = queue.shift();
@@ -378,7 +437,13 @@ export async function fetchNotionPages(
     rememberKind(kindCache, item.id, "page");
 
     try {
-      const blocks = await listTopLevelBlocks(notion, item.id);
+      if (pages.length === 0 || pages.length % 5 === 0) {
+        console.log(
+          `[notion] fetching page ${pages.length + 1} (queue ${queue.length}) id=${item.id.slice(0, 8)}...`,
+        );
+      }
+
+      const blocks = await listBlocksRecursive(notion, item.id);
       enqueueChildBlocks(queue, visited, queued, kindCache, blocks);
 
       for (const target of extractLinkedTargets(blocks)) {
@@ -387,9 +452,10 @@ export async function fetchNotionPages(
       }
 
       const doc = await fetchPageDocument(notion, item.id);
+      enqueueMarkdownPageLinks(queue, visited, queued, kindCache, doc.content);
       pages.push(doc);
-      if (pages.length % 10 === 0) {
-        console.log(`[notion] fetched ${pages.length} pages...`);
+      if (pages.length === 1 || pages.length % 10 === 0) {
+        console.log(`[notion] fetched ${pages.length} pages (queue ${queue.length})`);
       }
       await sleep(400);
     } catch (error) {

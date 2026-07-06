@@ -43,6 +43,7 @@ export async function POST(request: Request) {
         title: item.chunk.title,
         content: item.chunk.content.slice(0, 400),
         startLine: item.chunk.startLine,
+        pageNumber: item.chunk.pageNumber,
         score: item.score,
         source: item.source,
       })),
