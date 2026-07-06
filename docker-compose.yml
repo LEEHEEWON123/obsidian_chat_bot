@@ -7,3 +7,13 @@ services:
     volumes:
       - ./qdrant_data:/qdrant/storage
     restart: unless-stopped
+
+  # PDF OCR for npm run pdf:export — start only when needed (Docker Desktop OK)
+  # npm run pdf:hybrid:up / pdf:hybrid:down
+  odp-hybrid:
+    profiles: [pdf-ocr]
+    build: ./docker/odp-hybrid
+    container_name: odp-hybrid
+    ports:
+      - "5002:5002"
+    restart: "no"

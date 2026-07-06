@@ -1,4 +1,5 @@
 import { execSync } from "child_process";
+import { existsSync } from "fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
@@ -23,14 +24,58 @@ export interface PdfExportResult {
   warnings: string[];
 }
 
-function assertJavaAvailable(): void {
+/** Homebrew OpenJDK paths when `java` is not on PATH (common in IDE terminals). */
+const MACOS_JAVA_HOME_CANDIDATES = [
+  "/opt/homebrew/opt/openjdk@21",
+  "/opt/homebrew/opt/openjdk@17",
+  "/opt/homebrew/opt/openjdk@11",
+  "/opt/homebrew/opt/openjdk",
+  "/usr/local/opt/openjdk@21",
+  "/usr/local/opt/openjdk@17",
+  "/usr/local/opt/openjdk@11",
+  "/usr/local/opt/openjdk",
+];
+
+function javaWorks(): boolean {
   try {
     execSync("java -version", { stdio: "ignore" });
+    return true;
   } catch {
-    throw new Error(
-      "Java 11+ is required for PDF export. Install JDK from https://adoptium.net/ and run `java -version`.",
-    );
+    return false;
   }
+}
+
+/** Put Java on PATH for OpenDataLoader (JVM). Uses JAVA_HOME from env or Homebrew. */
+function ensureJavaEnv(): void {
+  if (javaWorks()) return;
+
+  const candidates = [
+    process.env.JAVA_HOME,
+    ...MACOS_JAVA_HOME_CANDIDATES,
+  ].filter(Boolean) as string[];
+
+  for (const home of candidates) {
+    const javaBin = path.join(home, "bin", "java");
+    if (!existsSync(javaBin)) continue;
+
+    process.env.JAVA_HOME = home;
+    const binDir = path.join(home, "bin");
+    const pathParts = (process.env.PATH ?? "").split(path.delimiter);
+    if (!pathParts.includes(binDir)) {
+      process.env.PATH = [binDir, ...pathParts].join(path.delimiter);
+    }
+    if (javaWorks()) return;
+  }
+}
+
+function assertJavaAvailable(): void {
+  ensureJavaEnv();
+  if (javaWorks()) return;
+
+  throw new Error(
+    "Java 11+ is required for PDF export. Install JDK (e.g. brew install openjdk@21), " +
+      "add to PATH or set JAVA_HOME in .env.local, then run `java -version`.",
+  );
 }
 
 function titleFromMarkdown(markdown: string, fallback: string): string {
