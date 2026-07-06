@@ -12,80 +12,137 @@ Obsidian **vault 폴더** (`VAULT_PATH`) 안의 `.md`를 인덱싱해 **hybrid �
 
 ## 구조
 
+### 1. 유저 검색 (런타임)
+
+인덱싱은 **이미 CLI에서 끝난 상태**입니다. 검색 시에는 vault md를 다시 읽지 않고 **Qdrant**(또는 offline JSON)에서 청크를 꺼냅니다.
+
 ```mermaid
-flowchart TB
-  subgraph vault["Obsidian Vault (VAULT_PATH)"]
-    MD["INDEX_INCLUDE *.md"]
-    RAG[".company-rag/<br/>vectors.json · graph.json"]
-    PLG[".obsidian/plugins/company-rag"]
-  end
+flowchart TD
+  U[유저 자연어 질문]
 
-  subgraph cli["CLI (npm scripts)"]
-    IDX["npm run index"]
-    BG["npm run build-graph"]
-    SYNC["npm run sync-index"]
-  end
+  U --> OBS[Obsidian · Company RAG 플러그인]
+  U --> WEB[웹 UI · localhost:3000]
 
-  subgraph qdrant["Qdrant (Docker :6333)"]
-    VEC["company-rag collection"]
-  end
+  OBS --> API{npm run dev<br/>API 켜져 있음?}
+  API -->|Yes| SEARCH["POST /api/search"]
+  API -->|No| OFF["vault/.company-rag/<br/>vectors.json + graph.json"]
 
-  subgraph server["Next.js (npm run dev :3000)"]
-    SEARCH["/api/search"]
-    CHAT["/api/chat"]
-    META["data/<br/>vector-meta.json · graph.json"]
-  end
+  WEB --> CHAT["POST /api/chat"]
 
-  subgraph clients["클라이언트"]
-    OBS["Obsidian · Company RAG 플러그인"]
-    WEB["웹 UI · localhost:3000"]
-  end
+  SEARCH --> QDRANT[(Qdrant · Docker :6333)]
+  CHAT --> QDRANT
 
-  MD --> IDX
-  IDX --> VEC
-  IDX --> META
-  BG --> META
-  SYNC --> VEC
-  SYNC --> RAG
-  META --> BG
+  QDRANT --> CHUNKS[관련 청크 반환<br/>path · title · content]
 
-  PLG -->|"POST /api/search<br/>hybrid + rerank"| SEARCH
-  PLG -->|"offline"| RAG
-  SEARCH --> VEC
-  WEB -->|"POST /api/chat<br/>RAG + Cursor SDK"| CHAT
-  CHAT --> VEC
+  OFF --> KW[로컬 키워드 검색]
+  KW --> GRAPH[graph.json으로 🔗 연결 노트 추가]
+  GRAPH --> CHUNKS
+
+  CHUNKS --> UI[검색 결과 UI]
+  CHUNKS --> LLM[Cursor SDK 답변 스트리밍]
+  LLM --> UI
 ```
 
-### 검색 워크플로우 (v0.3)
+| 경로 | 검색 방식 | 비고 |
+|------|-----------|------|
+| **온라인** (Obsidian / 웹) | Qdrant hybrid + rerank | 시맨틱(cosine) + 키워드 → rerank |
+| **offline** (Obsidian만) | `vectors.json` 키워드 + `graph.json` 확장 | API 꺼져 있을 때 fallback |
+| **웹 채팅** | Qdrant 검색 → context → LLM | `/api/chat` |
+
+> vault **원본 md 전체**는 Qdrant에 없습니다. **청크 조각**(`content`, `path`, `title` …) + **1024차원 벡터**만 저장됩니다.
+
+### 2. 검색 파이프라인 상세 (온라인)
 
 ```mermaid
-flowchart LR
-  Q[질문] --> P[parseQuery<br/>키워드·폴더 힌트]
-  P --> H[1차 Hybrid Recall]
-  H --> K[키워드 scan<br/>path·title·content]
-  H --> S[시맨틱 search<br/>bge-m3 · Qdrant top-K]
-  K --> M[후보 merge<br/>RAG_RECALL_K]
+flowchart TD
+  Q[질문] --> E[질문 bge-m3 임베딩]
+  E --> H[1차 Hybrid Recall]
+
+  H --> K[키워드 scan<br/>path · title · content]
+  H --> S[Qdrant cosine search<br/>HNSW top-K]
+
+  K --> M[후보 merge · RAG_RECALL_K]
   S --> M
-  M --> R[2차 Rerank<br/>bge-reranker-v2-m3]
-  R --> L[최종 top-K<br/>RAG_TOP_K]
-  L --> G[LLM /api/chat]
+
+  M --> R[2차 Rerank · bge-reranker-v2-m3]
+  R --> T[최종 top-K · RAG_TOP_K]
+  T --> OUT[결과 / LLM context]
 ```
 
 | 단계 | 역할 |
 |------|------|
 | **1차 Hybrid** | 의미(시맨틱) + 정확한 단어(키워드)로 후보 **넓게** 수집 |
 | **2차 Rerank** | cross-encoder가 query+청크 쌍을 읽고 **순위 재정렬** |
-| **Generation** | rerank된 청크를 context로 Cursor SDK 답변 |
+| **Generation** (`/api/chat`) | rerank된 청크를 context로 Cursor SDK 답변 |
+
+### 3. 인덱싱 (CLI — 미리 해두는 작업)
+
+```mermaid
+flowchart TD
+  subgraph vault["Vault (VAULT_PATH)"]
+    MD["notion/**/*.md<br/>.pdf-index/**/*.md"]
+    PDF["*.pdf"]
+  end
+
+  PDF --> EXPORT["npm run pdf:export"]
+  EXPORT --> SIDECAR[".pdf-index/**/*.md"]
+
+  MD --> INDEX["npm run index"]
+  SIDECAR --> INDEX
+
+  INDEX --> QDRANT[(Qdrant)]
+  INDEX --> MANIFEST["data/index-manifest.json"]
+  INDEX --> GDATA["data/graph.json"]
+
+  QDRANT --> SYNC["npm run sync-index"]
+  GDATA --> SYNC
+  SYNC --> RAG["vault/.company-rag/<br/>vectors.json · graph.json"]
+```
+
+| 명령 | 역할 |
+|------|------|
+| `npm run pdf:export` | PDF → `.pdf-index/**/*.md` sidecar (Java 11+, [OpenDataLoader](https://github.com/opendataloader-project/opendataloader-pdf)) |
+| `npm run index` | md → 청킹 → bge-m3 임베딩 → **Qdrant** + graph (기본 **증분**) |
+| `npm run sync-index` | Qdrant + graph → vault `.company-rag/` (Obsidian offline용) |
+| `npm run build-graph` | wikilink 그래프만 재빌드 (임베딩 없음) |
+
+### 4. 저장소 한눈에
+
+| 저장 | 위치 | 내용 | 검색 시 |
+|------|------|------|---------|
+| **Qdrant** | Docker `:6333` | 청크 벡터 + payload | **온라인 검색 본체** |
+| **vectors.json** | `vault/.company-rag/` | Qdrant 전체 스냅샷 (청크 + embedding) | API offline fallback |
+| **graph.json** | `data/` + `.company-rag/` | md 간 wikilink / notion_link | 🔗 연결 노트 확장 |
+| **index-manifest.json** | `data/` | mtime/size/qdrantPaths (증분용) | 검색 안 씀 (index만) |
+| **vector-meta.json** | `data/` | `indexedAt`, `chunkCount` | 메타만 |
+
+**vectors.json** — 청크 + 1024차원 embedding 배열:
+
+```json
+{
+  "meta": { "indexedAt": "...", "chunkCount": 2635 },
+  "chunks": [{ "path": "notion/foo.md", "title": "...", "content": "...", "embedding": [0.02, ...] }]
+}
+```
+
+**graph.json** — 노트 간 링크:
+
+```json
+{
+  "meta": { "nodeCount": 519, "edgeCount": 4 },
+  "nodes": ["notion/A.md", "notion/B.md"],
+  "edges": [{ "from": "notion/A.md", "to": "notion/B.md", "kind": "notion_link" }]
+}
+```
+
+### 5. 구성 요약
 
 | 구성 | 역할 |
 |------|------|
-| vault md (`INDEX_INCLUDE`) | 인덱싱 대상 (예: `**/*.md`, `notion/**/*.md`) |
-| `npm run index` | md → 임베딩 → **Qdrant** + graph (기본 **증분**, 변경 파일만 임베딩) |
-| `npm run pdf:export` | PDF → `.pdf-index/**/*.md` sidecar (Java 11+, [OpenDataLoader](https://github.com/opendataloader-project/opendataloader-pdf)) |
-| `npm run sync-index` | Qdrant → vault `.company-rag/vectors.json` (offline용) |
-| **Company RAG 플러그인** | Obsidian 사이드바 Lookup · `/api/search` 호출 |
-| API offline | 플러그인이 `.company-rag/` 로컬 키워드 + 그래프 fallback |
-| 웹 UI | 브라우저 채팅 · `/api/chat` |
+| vault md (`INDEX_INCLUDE`) | 인덱싱 대상 (예: `notion/**/*.md`) |
+| **Company RAG 플러그인** | Obsidian 사이드바 Lookup · `/api/search` |
+| **Next.js** (`npm run dev`) | `/api/search`, `/api/chat` |
+| **Qdrant** (Docker) | 벡터 DB · cosine HNSW 검색 |
 
 ---
 
