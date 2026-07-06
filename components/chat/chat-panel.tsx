@@ -1,56 +1,73 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-export interface Source {
-  path: string;
-  title: string;
-  startLine: number;
-  pageNumber?: number;
-  content: string;
-}
-
-function sourceLocation(source: Source): string | null {
-  if (source.path.toLowerCase().endsWith(".pdf") && source.pageNumber) {
-    return `#page=${source.pageNumber}`;
-  }
-  if (source.startLine) {
-    return `#L${source.startLine}`;
-  }
-  return null;
-}
-
-export interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sources?: Source[];
-}
-
-interface HealthStatus {
-  chunkCount: number;
-  indexedAt: string | null;
-  vaultPathConfigured: boolean;
-  cursorApiKeyConfigured: boolean;
-}
+import { ConversationView } from "./conversation-view";
+import { SetupView } from "./setup-view";
+import {
+  type HealthStatus,
+  type Message,
+  type PanelView,
+  type Source,
+  resolvePanelView,
+} from "./types";
 
 function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function formatIndexedAt(iso: string): string {
+  return new Date(iso).toLocaleString();
+}
+
+function statusLabel(view: PanelView, health: HealthStatus | null): string {
+  if (view === "loading") return "상태 확인 중…";
+  if (view === "health_error") return "상태 확인 실패";
+  if (view === "config_missing") return "환경 설정 필요";
+  if (view === "indexing") return "인덱싱 중…";
+  if (view === "no_index") return "인덱스 없음";
+  if (health?.chunkCount) return `${health.chunkCount} chunks indexed`;
+  return "준비됨";
+}
+
 export function ChatPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [healthError, setHealthError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [indexedAtLabel, setIndexedAtLabel] = useState<string | null>(null);
+
+  const view = resolvePanelView({
+    healthLoading,
+    healthError,
+    health,
+    indexing,
+  });
 
   async function loadHealth() {
-    const response = await fetch("/api/health");
-    const data = (await response.json()) as HealthStatus;
-    setHealth(data);
+    setHealthLoading(true);
+    setHealthError(null);
+
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Health check failed (${response.status})`);
+      }
+      const data = (await response.json()) as HealthStatus;
+      setHealth(data);
+    } catch (loadError) {
+      setHealth(null);
+      setHealthError(
+        loadError instanceof Error
+          ? loadError.message
+          : "상태 확인에 실패했습니다",
+      );
+    } finally {
+      setHealthLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -58,8 +75,12 @@ export function ChatPanel() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+    if (health?.indexedAt) {
+      setIndexedAtLabel(formatIndexedAt(health.indexedAt));
+    } else {
+      setIndexedAtLabel(null);
+    }
+  }, [health?.indexedAt]);
 
   async function handleIndex() {
     setIndexing(true);
@@ -93,11 +114,7 @@ export function ChatPanel() {
     }
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const trimmed = input.trim();
-    if (!trimmed || loading) return;
-
+  async function handleChatSubmit(trimmed: string) {
     const userMessage: Message = {
       id: createId(),
       role: "user",
@@ -105,10 +122,13 @@ export function ChatPanel() {
     };
 
     const assistantId = createId();
-    const nextMessages = [...messages, userMessage];
+    const nextMessages = [
+      ...messages,
+      userMessage,
+      { id: assistantId, role: "assistant" as const, content: "", sources: [] },
+    ];
 
     setMessages(nextMessages);
-    setInput("");
     setLoading(true);
     setError(null);
 
@@ -118,7 +138,10 @@ export function ChatPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: trimmed,
-          history: nextMessages.map(({ role, content }) => ({ role, content })),
+          history: [...messages, userMessage].map(({ role, content }) => ({
+            role,
+            content,
+          })),
         }),
       });
 
@@ -136,11 +159,6 @@ export function ChatPanel() {
       let buffer = "";
       let assistantContent = "";
       let sources: Source[] = [];
-
-      setMessages((current) => [
-        ...current,
-        { id: assistantId, role: "assistant", content: "", sources: [] },
-      ]);
 
       while (true) {
         const { done, value } = await reader.read();
@@ -193,36 +211,30 @@ export function ChatPanel() {
     }
   }
 
+  const showReindexButton =
+    view !== "loading" && view !== "health_error" && view !== "config_missing";
+
   return (
     <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-4xl flex-col rounded-2xl border border-zinc-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">Company Chat Bot</h1>
-          <p className="text-sm text-zinc-500">
-            {health?.chunkCount
-              ? `${health.chunkCount} chunks indexed`
-              : "No index yet"}
-            {health?.indexedAt
-              ? ` · ${new Date(health.indexedAt).toLocaleString()}`
-              : ""}
+          <p className="text-sm text-zinc-500" suppressHydrationWarning>
+            {statusLabel(view, health)}
+            {indexedAtLabel ? ` · ${indexedAtLabel}` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleIndex()}
-          disabled={indexing}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {indexing ? "Indexing..." : "Re-index"}
-        </button>
+        {showReindexButton ? (
+          <button
+            type="button"
+            onClick={() => void handleIndex()}
+            disabled={indexing}
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {indexing ? "Indexing..." : "Re-index"}
+          </button>
+        ) : null}
       </header>
-
-      {!health?.cursorApiKeyConfigured || !health?.vaultPathConfigured ? (
-        <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-          `.env.local`에 `CURSOR_API_KEY`와 `VAULT_PATH`를 설정한 뒤 Re-index
-          하세요.
-        </div>
-      ) : null}
 
       {error ? (
         <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700">
@@ -230,76 +242,21 @@ export function ChatPanel() {
         </div>
       ) : null}
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-        {messages.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
-            Obsidian vault를 인덱싱한 뒤 회사 문서에 대해 질문해 보세요.
-          </div>
-        ) : null}
-
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 whitespace-pre-wrap ${
-                message.role === "user"
-                  ? "bg-zinc-900 text-white"
-                  : "bg-zinc-100 text-zinc-900"
-              }`}
-            >
-              {message.content || (loading ? "..." : "")}
-              {message.role === "assistant" && message.sources?.length ? (
-                <div className="mt-3 border-t border-zinc-200 pt-3 text-xs text-zinc-600">
-                  <p className="mb-2 font-medium">Sources</p>
-                  <ol className="list-decimal space-y-1 pl-5">
-                    {message.sources.map((source) => (
-                      <li
-                        key={`${source.path}-${source.startLine}`}
-                        className="text-zinc-700"
-                      >
-                        <span className="font-medium text-zinc-800">
-                          {source.title || source.path}
-                        </span>
-                        {sourceLocation(source) ? (
-                          <span className="text-zinc-400">
-                            {" "}
-                            {sourceLocation(source)}
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-
-      <form
-        onSubmit={(event) => void handleSubmit(event)}
-        className="border-t border-zinc-200 px-5 py-4"
-      >
-        <div className="flex gap-3">
-          <input
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="회사 문서에 대해 질문하세요..."
-            className="flex-1 rounded-xl border border-zinc-300 px-4 py-3 text-sm outline-none ring-zinc-900 focus:ring-2"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="rounded-xl bg-zinc-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "..." : "Send"}
-          </button>
-        </div>
-      </form>
+      {view === "chat" ? (
+        <ConversationView
+          messages={messages}
+          loading={loading}
+          onSubmit={(message) => void handleChatSubmit(message)}
+        />
+      ) : (
+        <SetupView
+          view={view}
+          healthError={healthError}
+          onReindex={() => void handleIndex()}
+        />
+      )}
     </div>
   );
 }
+
+export type { Message, Source } from "./types";
