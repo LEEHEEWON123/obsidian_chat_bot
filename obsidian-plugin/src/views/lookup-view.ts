@@ -217,7 +217,7 @@ export class LookupView extends ItemView {
     let path = result.path;
 
     if (path.startsWith("notion://")) {
-      new Notice("Notion 경로 — vault md 파일을 여세요: notion/...");
+      new Notice("Notion 경로 — vault md 파일을 여세요: dobedub/notion/...");
       return;
     }
 

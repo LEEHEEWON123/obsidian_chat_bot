@@ -41,16 +41,26 @@ npm run workspace:dev     # :3000 ← 여기서 채팅
 
 문서 추가/변경 후: `npm run index`
 
+## NAVER Works DM 공유 (개인 전송 + 승인)
+
+문서 요약을 동료 Works DM으로 보내려면:
+
+1. NAVER Works Developer Console에서 앱 + Bot + Service Account JWT 키
+   → `NAVER_WORKS_CLIENT_ID/SECRET/SERVICE_ACCOUNT/BOT_ID` + private key
+   → Scope: `bot bot.message bot.read directory.read`
+2. `cp config/share-people.example.json config/share-people.json` 후
+   `naverWorksUserId` 채우기
+3. Workspace: "A씨에게 … 요약 보내줘" → 초안 확인 → "보내"
+
+공개 채널 로그/학습은 나중에. 지금은 **개인 DM만**.
+
 ## 인덱싱 범위
 
 `.env.local`의 `INDEX_INCLUDE`:
 
-- `vogopang_front/**/*.md`
-- `dubright_front/**/*.md`
-- `pudding_front/**/*.md`
-- `notion/**/*.md`
+- `dobedub/**/*.md` (notion, dubright, pudding, vogopang 전부 포함)
 
-Hermes가 vault 검색할 때 `AGENTS.md` + MCP `pathPrefix`/`rootFolder`로 스코프합니다.
+Hermes가 vault 검색할 때 `AGENTS.md` + MCP `pathPrefix`/`rootFolder: "dobedub"`로 스코프합니다.
 
 ## 구 UI (Next.js ChatPanel)
 

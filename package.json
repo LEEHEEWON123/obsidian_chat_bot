@@ -6,6 +6,7 @@
     "dev": "next dev -p 3001",
     "workspace:setup": "tsx scripts/workspace-setup.ts",
     "workspace:dev": "cd \"$HOME/hermes-workspace\" && npx pnpm dev",
+    "start:all": "bash scripts/start-all.sh",
     "hermes:gateway": "PATH=\"$HOME/.local/bin:$PATH\" hermes gateway run --accept-hooks",
     "build": "next build --webpack",
     "start": "next start",

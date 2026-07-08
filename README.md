@@ -217,10 +217,27 @@ npm run hermes:chat     # web + terminal + mcp-obsidian_rag + session_search
 |------|------|
 | `obsidian_rag_search` | hybrid + rerank 검색 (`retrieveRelevantChunksWithMeta`와 동일 파이프라인) |
 | `read_vault_note` | vault 상대 경로로 md **전문** 읽기 (요약용) |
+| `prepare_share` | 네이버웍스 DM 초안 작성 (**전송 안 함**). `config/share-people.json`으로 수신자 해석 |
+| `confirm_share_draft` | 사용자가 `보내` 등 명시 확인한 뒤에만 초안 전송 |
+| `cancel_share_draft` | 초안 취소 |
 
 Hermes **과거 대화**는 별도 DB(`~/.hermes/state.db`)에 자동 저장되며, `session_search`로 검색합니다 (Qdrant/vault index와 무관).
 
 MCP 서버만 단독 실행: `npm run mcp` (stdio, Hermes가 subprocess로 기동)
+
+### NAVER Works DM 공유
+
+문서 요약을 **개인 네이버웍스 DM**으로 보낼 수 있습니다. Slack은 쓰지 않습니다. Hermes가 초안을 보여준 뒤, 사용자가 확인할 때만 전송합니다.
+
+1. [Developer Console](https://developers.worksmobile.com/)에서 Client App + Bot + Service Account JWT
+2. Scope: `bot`, `bot.message`, `bot.read`, `directory.read`
+3. `.env.local`에 `NAVER_WORKS_*` 설정 (`.env.example` 참고)
+4. `cp config/share-people.example.json config/share-people.json` 후 `naverWorksUserId` 채우기
+5. Workspace에서: `A씨에게 … 요약 보내줘` → 초안 확인 → `보내`
+
+상세: [`hermes/WORKSPACE.md`](hermes/WORKSPACE.md) · 에이전트 규칙: [`hermes/AGENTS.md`](hermes/AGENTS.md)
+
+매일 기동을 한 번에: `npm run start:all` (gateway + dashboard + Workspace)
 
 ### 비용 참고
 
@@ -260,6 +277,12 @@ cp .env.example .env.local
 | `INDEX_INCLUDE` | 인덱싱 glob (예: `notion/**/*.md,vogopang_front/**/*.md`) |
 | `HERMES_API_KEY` | Hermes gateway API 토큰 (`workspace:setup`이 `~/hermes-workspace/.env`에 복사) |
 | `CURSOR_API_KEY` | 레거시 Next 채팅용 (`npm run dev` :3001) |
+| `NAVER_WORKS_CLIENT_ID` / `CLIENT_SECRET` | Works Client App 인증 |
+| `NAVER_WORKS_SERVICE_ACCOUNT` | Service Account 이메일 |
+| `NAVER_WORKS_BOT_ID` | Bot ID |
+| `NAVER_WORKS_PRIVATE_KEY_PATH` | Service Account private key 절대 경로 (또는 `NAVER_WORKS_PRIVATE_KEY`) |
+| `NAVER_WORKS_SCOPE` | 기본 `bot bot.message bot.read directory.read` |
+| `SHARE_PEOPLE_FILE` | 수신자 디렉터리 JSON (기본 `config/share-people.json`) |
 | `RAG_INDEX_DIR` | vault 내 인덱스 폴더 (기본 `.company-rag`) |
 | `QDRANT_URL` | Qdrant REST URL (기본 `http://127.0.0.1:6333`) |
 | `QDRANT_COLLECTION` | Qdrant 컬렉션 (기본 `company-rag`) |
@@ -600,6 +623,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | `npm run hermes:dashboard` | Hermes dashboard `:9119` |
 | `npm run workspace:setup` | Hermes Workspace 클론 + `.env` (`~/hermes-workspace`) |
 | `npm run workspace:dev` | Hermes Workspace UI `:3000` |
+| `npm run start:all` | gateway + dashboard + Workspace 한 번에 |
 | `npm run hermes:chat` | Hermes CLI (web + terminal + MCP) |
 | `@modelcontextprotocol/sdk` | MCP 서버 (`scripts/mcp-server.ts`) |
 | `glob` | vault md 스캔 (`INDEX_INCLUDE`) |

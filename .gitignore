@@ -37,6 +37,12 @@ yarn-error.log*
 .env.local
 .env.*.local
 
+# local people directories (may contain real member IDs)
+/config/share-people.json
+# NAVER Works private key files if stored in-repo by mistake
+*.key
+!*.key.example
+
 # vercel
 .vercel
 
