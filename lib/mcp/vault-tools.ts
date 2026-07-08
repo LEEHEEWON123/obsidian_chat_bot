@@ -2,6 +2,7 @@ import { readFile } from "fs/promises";
 import path from "path";
 
 import { getConfig } from "@/lib/config";
+import { normalizePathScopeValue } from "@/lib/rag/path-scope";
 import { retrieveRelevantChunksWithMeta } from "@/lib/rag/pipeline";
 
 export interface RagSearchHit {
@@ -16,6 +17,8 @@ export interface RagSearchHit {
 
 export interface RagSearchResult {
   query: string;
+  rootFolder?: string;
+  pathPrefix?: string;
   chunkCount: number;
   results: RagSearchHit[];
 }
@@ -39,6 +42,8 @@ export async function obsidianRagSearch(options: {
   query: string;
   topK?: number;
   contextPath?: string;
+  rootFolder?: string;
+  pathPrefix?: string;
   snippetChars?: number;
 }): Promise<RagSearchResult> {
   const config = getConfig();
@@ -51,6 +56,8 @@ export async function obsidianRagSearch(options: {
     throw new Error("query is required");
   }
 
+  const rootFolder = normalizePathScopeValue(options.rootFolder);
+  const pathPrefix = normalizePathScopeValue(options.pathPrefix);
   const topK = options.topK ?? config.topK;
   const snippetChars = options.snippetChars ?? 1200;
   const retrieved = await retrieveRelevantChunksWithMeta({
@@ -58,10 +65,14 @@ export async function obsidianRagSearch(options: {
     dataDir: config.dataDir,
     topK,
     contextPath: options.contextPath?.trim() || undefined,
+    rootFolder,
+    pathPrefix,
   });
 
   return {
     query,
+    ...(rootFolder ? { rootFolder } : {}),
+    ...(pathPrefix ? { pathPrefix } : {}),
     chunkCount: retrieved.length,
     results: retrieved.map((item) => ({
       path: item.chunk.path,

@@ -82,7 +82,7 @@ function main(): void {
   console.log("");
   console.log("Next:");
   console.log("  1. Ensure Qdrant is running and index is built (npm run index)");
-  console.log("  2. hermes chat --toolsets web,terminal,mcp-obsidian_rag");
+  console.log("  2. hermes chat --toolsets web,terminal,mcp-obsidian_rag,session_search");
   console.log("     or: npm run hermes:chat");
 }
 

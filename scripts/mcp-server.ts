@@ -15,6 +15,7 @@ const server = new McpServer(
   {
     instructions: [
       "Use obsidian_rag_search to find indexed vault chunks.",
+      "Pass rootFolder (e.g. notion) or pathPrefix to limit search scope.",
       "Use read_vault_note to read the full markdown file before summarizing.",
       "For complex questions, search with different queries, read promising notes, then answer.",
     ].join(" "),
@@ -35,14 +36,32 @@ server.registerTool(
         .max(20)
         .optional()
         .describe("Number of chunks to return (default from RAG_TOP_K)"),
+      rootFolder: z
+        .string()
+        .optional()
+        .describe(
+          "Limit results to a vault top-level folder (e.g. notion, pudding_front)",
+        ),
+      pathPrefix: z
+        .string()
+        .optional()
+        .describe(
+          "Limit results to paths under this vault-relative prefix (e.g. notion or pudding_front/docs)",
+        ),
       contextPath: z
         .string()
         .optional()
         .describe("Vault-relative path of the active note for graph-linked context"),
     },
   },
-  async ({ query, topK, contextPath }) => {
-    const result = await obsidianRagSearch({ query, topK, contextPath });
+  async ({ query, topK, rootFolder, pathPrefix, contextPath }) => {
+    const result = await obsidianRagSearch({
+      query,
+      topK,
+      rootFolder,
+      pathPrefix,
+      contextPath,
+    });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };

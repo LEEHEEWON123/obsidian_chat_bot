@@ -3,7 +3,13 @@ import path from "path";
 
 import type { DocumentChunk } from "@/lib/indexer/chunk";
 import { getConfig } from "@/lib/config";
-import { matchesRootFolder, scoreKeywordMatch } from "@/lib/rag/query-hints";
+import {
+  hasPathScope,
+  matchesPathScope,
+  rootFoldersFromScope,
+  type PathScope,
+} from "@/lib/rag/path-scope";
+import { scoreKeywordMatch } from "@/lib/rag/query-hints";
 import {
   chunkToPointId,
   createQdrantClient,
@@ -268,15 +274,28 @@ export class VectorStore {
     await this.saveMeta();
   }
 
-  async search(queryEmbedding: number[], topK: number): Promise<IndexedChunk[]> {
+  async search(
+    queryEmbedding: number[],
+    topK: number,
+    scope?: PathScope,
+  ): Promise<IndexedChunk[]> {
     if (this.meta.chunkCount === 0) return [];
 
     const client = this.client();
+    const rootFolder = rootFoldersFromScope(scope ?? {})[0];
+    const oversample = hasPathScope(scope ?? {}) ? 4 : 1;
     const response = await client.search(this.collection, {
       vector: queryEmbedding,
-      limit: topK,
+      limit: topK * oversample,
       with_payload: true,
       with_vector: true,
+      ...(rootFolder
+        ? {
+            filter: {
+              must: [{ key: "rootFolder", match: { value: rootFolder } }],
+            },
+          }
+        : {}),
     });
 
     return response
@@ -288,7 +307,9 @@ export class VectorStore {
           : Object.values(point.vector as Record<string, number>).map(Number);
         return chunkFromRecord(payload, embedding);
       })
-      .filter((chunk): chunk is IndexedChunk => chunk !== null);
+      .filter((chunk): chunk is IndexedChunk => chunk !== null)
+      .filter((chunk) => matchesPathScope(chunk.path, scope ?? {}))
+      .slice(0, topK);
   }
 
   async getChunksByPaths(paths: string[]): Promise<IndexedChunk[]> {
@@ -363,15 +384,20 @@ export class VectorStore {
   async findChunksByKeywords(options: {
     terms: string[];
     rootFolders?: string[];
+    pathScope?: PathScope;
     limit: number;
   }): Promise<IndexedChunk[]> {
-    const { terms, rootFolders = [], limit } = options;
+    const { terms, limit } = options;
+    const pathScope = options.pathScope ?? {};
+    const rootFolders =
+      options.rootFolders ?? rootFoldersFromScope(pathScope);
     if (terms.length === 0 || this.meta.chunkCount === 0) return [];
 
     const client = this.client();
     const scored: Array<{ chunk: IndexedChunk; score: number }> = [];
     let offset: string | number | undefined;
-    const maxBatches = rootFolders.length > 0 ? 200 : 80;
+    const scoped = hasPathScope(pathScope) || rootFolders.length > 0;
+    const maxBatches = scoped ? 200 : 80;
 
     for (let batch = 0; batch < maxBatches; batch++) {
       const response = await client.scroll(this.collection, {
@@ -379,13 +405,20 @@ export class VectorStore {
         offset,
         with_payload: true,
         with_vector: true,
+        ...(rootFolders.length === 1
+          ? {
+              filter: {
+                must: [{ key: "rootFolder", match: { value: rootFolders[0] } }],
+              },
+            }
+          : {}),
       });
 
       for (const point of response.points) {
         const payload = point.payload as ChunkPayload | null | undefined;
         if (!payload || !point.vector) continue;
 
-        if (!matchesRootFolder(payload.path, rootFolders)) continue;
+        if (!matchesPathScope(payload.path, pathScope)) continue;
 
         const embedding = Array.isArray(point.vector)
           ? point.vector.map(Number)

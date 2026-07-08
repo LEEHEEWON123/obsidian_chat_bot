@@ -5,6 +5,12 @@ import { appendLinkedContextChunks } from "@/lib/rag/note-context";
 import { rerankChunks } from "@/lib/rerank/local";
 import { mergeHybridResults, type ScoredChunk } from "@/lib/rag/hybrid";
 import { extractDatesFromQuery } from "@/lib/rag/query-dates";
+import {
+  hasPathScope,
+  matchesPathScope,
+  normalizePathScopeValue,
+  type PathScope,
+} from "@/lib/rag/path-scope";
 import { parseQuery, scoreKeywordMatch } from "@/lib/rag/query-hints";
 import { VectorStore, type IndexedChunk } from "@/lib/vector-store/store";
 
@@ -41,9 +47,15 @@ export async function retrieveRelevantChunksWithMeta(options: {
   topK: number;
   recallK?: number;
   contextPath?: string;
+  rootFolder?: string;
+  pathPrefix?: string;
 }): Promise<RetrievedChunkMeta[]> {
   const config = getConfig();
   const recallK = options.recallK ?? config.recallK;
+  const pathScope: PathScope = {
+    rootFolder: normalizePathScopeValue(options.rootFolder),
+    pathPrefix: normalizePathScopeValue(options.pathPrefix),
+  };
 
   const store = await VectorStore.load(options.dataDir);
   if (store.getMeta().chunkCount === 0) {
@@ -71,6 +83,7 @@ export async function retrieveRelevantChunksWithMeta(options: {
     parsed.terms.length > 0
       ? await store.findChunksByKeywords({
           terms: parsed.terms,
+          pathScope,
           limit: recallK,
         })
       : [];
@@ -82,7 +95,7 @@ export async function retrieveRelevantChunksWithMeta(options: {
   }));
 
   const queryEmbedding = await embedText(semanticQuery);
-  const semanticChunks = await store.search(queryEmbedding, recallK);
+  const semanticChunks = await store.search(queryEmbedding, recallK, pathScope);
 
   const semanticScored: ScoredChunk[] = semanticChunks.map((chunk) => ({
     chunk,
@@ -95,6 +108,12 @@ export async function retrieveRelevantChunksWithMeta(options: {
     semantic: semanticScored,
     limit: recallK,
   });
+
+  if (hasPathScope(pathScope)) {
+    candidates = candidates.filter((item) =>
+      matchesPathScope(item.chunk.path, pathScope),
+    );
+  }
 
   const graph = await GraphStore.load(options.dataDir);
   const hasGraphContext =
@@ -109,6 +128,12 @@ export async function retrieveRelevantChunksWithMeta(options: {
       hops: config.graphExpandHops,
       maxNeighborPaths: config.noteContextMaxPaths,
     });
+
+    if (hasPathScope(pathScope)) {
+      candidates = candidates.filter((item) =>
+        matchesPathScope(item.chunk.path, pathScope),
+      );
+    }
   }
 
   if (candidates.length === 0) return [];

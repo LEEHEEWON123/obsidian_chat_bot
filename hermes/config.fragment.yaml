@@ -2,6 +2,7 @@
 #
 # Enables only:
 #   1) Multi-step vault RAG via MCP (obsidian_rag_search, read_vault_note)
+#   2) session_search (past Hermes chats in ~/.hermes/state.db)
 #   3) web_search + terminal (vault-outside work)
 #
 # Prereqs: Hermes installed, Qdrant up, vault indexed (npm run index)
@@ -34,6 +35,7 @@ platform_toolsets:
     - web
     - terminal
     - mcp-obsidian_rag
+    - session_search
 
 terminal:
   backend: local

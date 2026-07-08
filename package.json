@@ -19,7 +19,8 @@
     "pdf:export": "tsx scripts/pdf-export-cli.ts",
     "mcp": "tsx scripts/mcp-server.ts",
     "hermes:setup": "tsx scripts/hermes-setup.ts",
-    "hermes:chat": "PATH=\"$HOME/.local/bin:$PATH\" hermes chat --toolsets web,terminal,mcp-obsidian_rag"
+    "hermes:chat": "PATH=\"$HOME/.local/bin:$PATH\" hermes chat --toolsets web,terminal,mcp-obsidian_rag,session_search",
+    "hermes:dashboard": "PATH=\"$HOME/.local/bin:$PATH\" hermes dashboard"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",

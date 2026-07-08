@@ -165,7 +165,7 @@ flowchart LR
 | 경로 | LLM | 검색 | vault 전문 | 웹 / 터미널 |
 |------|-----|------|------------|-------------|
 | **웹 UI** (`npm run dev`) | Cursor SDK | 1회 hybrid+rerkank | 청크만 | 없음 |
-| **Hermes** (`npm run hermes:chat`) | Nous Portal (설치 시 선택) | MCP **멀티스텝** | `read_vault_note` | `web`, `terminal` |
+| **Hermes** (`npm run hermes:chat`) | Nous Portal (설치 시 선택) | MCP **멀티스텝** + `session_search` | `read_vault_note` | `web`, `terminal` |
 
 ### 사전 요구
 
@@ -177,7 +177,7 @@ flowchart LR
 
 ```bash
 npm run hermes:setup    # ~/.hermes/config.yaml에 MCP + toolsets 병합
-npm run hermes:chat     # web + terminal + mcp-obsidian_rag
+npm run hermes:chat     # web + terminal + mcp-obsidian_rag + session_search
 ```
 
 `hermes:setup`은 `hermes/config.fragment.yaml`을 읽어 `mcp_servers.obsidian_rag`와 `platform_toolsets.cli`를 `~/.hermes/config.yaml`에 넣습니다. Hermes 설치 마법사 이후 **다시 실행**해도 됩니다.
@@ -188,6 +188,8 @@ npm run hermes:chat     # web + terminal + mcp-obsidian_rag
 |------|------|
 | `obsidian_rag_search` | hybrid + rerank 검색 (`retrieveRelevantChunksWithMeta`와 동일 파이프라인) |
 | `read_vault_note` | vault 상대 경로로 md **전문** 읽기 (요약용) |
+
+Hermes **과거 대화**는 별도 DB(`~/.hermes/state.db`)에 자동 저장되며, `session_search`로 검색합니다 (Qdrant/vault index와 무관).
 
 MCP 서버만 단독 실행: `npm run mcp` (stdio, Hermes가 subprocess로 기동)
 
