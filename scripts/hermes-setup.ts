@@ -81,9 +81,13 @@ function main(): void {
   console.log(`Copied agent instructions to ${agentsTarget}`);
   console.log("");
   console.log("Next:");
-  console.log("  1. Ensure Qdrant is running and index is built (npm run index)");
-  console.log("  2. hermes chat --toolsets web,terminal,mcp-obsidian_rag,session_search");
-  console.log("     or: npm run hermes:chat");
+  console.log("  1. npm run workspace:setup   # Hermes Workspace UI (first time)");
+  console.log("  2. npm run qdrant:up && npm run index");
+  console.log("  3. npm run hermes:gateway    # :8642");
+  console.log("  4. npm run hermes:dashboard  # :9119");
+  console.log("  5. npm run workspace:dev     # :3000 UI");
+  console.log("");
+  console.log("See hermes/WORKSPACE.md for the full stack.");
 }
 
 main();

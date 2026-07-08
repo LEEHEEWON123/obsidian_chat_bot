@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
+    "workspace:setup": "tsx scripts/workspace-setup.ts",
+    "workspace:dev": "cd \"$HOME/hermes-workspace\" && npx pnpm dev",
+    "hermes:gateway": "PATH=\"$HOME/.local/bin:$PATH\" hermes gateway run --accept-hooks",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",

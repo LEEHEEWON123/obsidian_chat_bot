@@ -1,6 +1,9 @@
 # Obsidian Chat Bot
 
-Obsidian **vault 폴더** (`VAULT_PATH`) 안의 `.md`를 인덱싱해 **hybrid 검색 + rerank + 채팅**합니다.
+Obsidian **vault 폴더** (`VAULT_PATH`) 안의 `.md`를 인덱싱해 **hybrid 검색 + rerank**합니다.
+
+**웹 UI**는 [Hermes Workspace](https://github.com/outsourc-e/hermes-workspace) (`localhost:3000`) — Hermes 에이전트 + MCP 멀티스텝.  
+**RAG 인프라**(인덱싱, Qdrant, MCP)는 이 레포가 담당합니다.
 
 벡터 저장은 **Qdrant** (로컬 Docker). Obsidian **Company RAG** 플러그인은 `/api/search`로 검색하고, API가 꺼지면 vault `.company-rag/` offline fallback을 씁니다.
 
@@ -21,16 +24,17 @@ flowchart TD
   U[유저 자연어 질문]
 
   U --> OBS[Obsidian · Company RAG 플러그인]
-  U --> WEB[웹 UI · localhost:3000]
+  U --> WEB[Hermes Workspace · localhost:3000]
 
-  OBS --> API{npm run dev<br/>API 켜져 있음?}
+  OBS --> API{Next.js API<br/>:3001 켜져 있음?}
   API -->|Yes| SEARCH["POST /api/search"]
   API -->|No| OFF["vault/.company-rag/<br/>vectors.json + graph.json"]
 
-  WEB --> CHAT["POST /api/chat"]
+  WEB --> GW[Hermes gateway :8642]
+  GW --> MCP[MCP obsidian_rag]
+  MCP --> QDRANT[(Qdrant · Docker :6333)]
 
-  SEARCH --> QDRANT[(Qdrant · Docker :6333)]
-  CHAT --> QDRANT
+  SEARCH --> QDRANT
 
   QDRANT --> CHUNKS[관련 청크 반환<br/>path · title · content]
 
@@ -39,15 +43,16 @@ flowchart TD
   GRAPH --> CHUNKS
 
   CHUNKS --> UI[검색 결과 UI]
-  CHUNKS --> LLM[Cursor SDK 답변 스트리밍]
-  LLM --> UI
+  CHUNKS --> HERMES[Hermes 에이전트 답변<br/>멀티스텝 MCP]
+  HERMES --> UI
 ```
 
 | 경로 | 검색 방식 | 비고 |
 |------|-----------|------|
-| **온라인** (Obsidian / 웹) | Qdrant hybrid + rerank | 시맨틱(cosine) + 키워드 → rerank |
+| **온라인** (Obsidian / API) | Qdrant hybrid + rerank | 시맨틱(cosine) + 키워드 → rerank |
 | **offline** (Obsidian만) | `vectors.json` 키워드 + `graph.json` 확장 | API 꺼져 있을 때 fallback |
-| **웹 채팅** | Qdrant 검색 → context → LLM | `/api/chat` |
+| **웹 채팅** (Workspace :3000) | Hermes MCP 멀티스텝 → Qdrant | `obsidian_rag_search` + `read_vault_note` |
+| **레거시 웹** (`npm run dev` :3001) | Qdrant → Cursor SDK 1-shot | `/api/chat` |
 
 > vault **원본 md 전체**는 Qdrant에 없습니다. **청크 조각**(`content`, `path`, `title` …) + **1024차원 벡터**만 저장됩니다.
 
@@ -141,46 +146,70 @@ flowchart TD
 |------|------|
 | vault md (`INDEX_INCLUDE`) | 인덱싱 대상 (예: `notion/**/*.md`) |
 | **Company RAG 플러그인** | Obsidian 사이드바 Lookup · `/api/search` |
-| **Next.js** (`npm run dev`) | `/api/search`, `/api/chat` |
+| **Hermes Workspace** (`npm run workspace:dev`) | 메인 웹 UI · `:3000` |
+| **Next.js** (`npm run dev`) | 레거시 API · `/api/search`, `/api/chat` · `:3001` |
 | **Qdrant** (Docker) | 벡터 DB · cosine HNSW 검색 |
-| **Hermes Agent** (선택) | MCP로 동일 RAG를 멀티스텝 + web/terminal과 연동 (`npm run hermes:chat`) |
+| **Hermes Agent** | gateway `:8642` + dashboard `:9119` + MCP |
 
 ---
 
-## Hermes Agent (선택)
+## Hermes Agent + Workspace
 
-[Hermes Agent](https://github.com/nousresearch/hermes-agent)를 **에이전트 CLI**로 붙이면, 같은 Qdrant 인덱스를 **여러 번 검색**하고 vault **전문 읽기**·웹 검색·로컬 터미널을 한 대화에서 쓸 수 있습니다. 웹 UI(`/api/chat`)와 **별개** 경로입니다.
+[Hermes Agent](https://github.com/nousresearch/hermes-agent)가 **에이전트 두뇌**, [Hermes Workspace](https://github.com/outsourc-e/hermes-workspace)가 **웹 UI**입니다. 같은 Qdrant 인덱스를 MCP로 멀티스텝 검색합니다.
 
 ```mermaid
 flowchart LR
-  H[Hermes CLI] --> MCP[MCP obsidian_rag]
+  UI[Hermes Workspace :3000] --> GW[gateway :8642]
+  GW --> MCP[MCP obsidian_rag]
   MCP --> SEARCH[obsidian_rag_search]
   MCP --> READ[read_vault_note]
   SEARCH --> QDRANT[(Qdrant + BGE)]
   READ --> VAULT[vault md]
-  H --> WEB[web_search · Firecrawl]
-  H --> TERM[terminal · local]
+  GW --> WEB[web_search]
+  GW --> TERM[terminal]
+  UI --> DASH[dashboard :9119]
 ```
 
 | 경로 | LLM | 검색 | vault 전문 | 웹 / 터미널 |
 |------|-----|------|------------|-------------|
-| **웹 UI** (`npm run dev`) | Cursor SDK | 1회 hybrid+rerkank | 청크만 | 없음 |
-| **Hermes** (`npm run hermes:chat`) | Nous Portal (설치 시 선택) | MCP **멀티스텝** + `session_search` | `read_vault_note` | `web`, `terminal` |
+| **Workspace** (`npm run workspace:dev`) | Nous Portal | MCP **멀티스텝** + `session_search` | `read_vault_note` | ✅ |
+| **Hermes CLI** (`npm run hermes:chat`) | Nous Portal | 동일 MCP | `read_vault_note` | ✅ |
+| **레거시 Next** (`npm run dev` :3001) | Cursor SDK | 1회 hybrid+rerank | 청크만 | 없음 |
 
 ### 사전 요구
 
-1. [Hermes 설치](https://hermes-agent.nousresearch.com/) (Quick Setup → Nous Portal OAuth 권장)
+1. [Hermes 설치](https://hermes-agent.nousresearch.com/) (Nous Portal OAuth 권장)
 2. Qdrant 실행 + 인덱스 (`npm run qdrant:up`, `npm run index`)
-3. 셸에 `hermes`가 없으면 `source ~/.zshrc` (또는 `npm run hermes:chat`이 PATH를 보정)
+3. Node.js 22+ (Workspace용)
 
-### 연동
+### 최초 1회
 
 ```bash
-npm run hermes:setup    # ~/.hermes/config.yaml에 MCP + toolsets 병합
+npm run hermes:setup      # ~/.hermes MCP + api_server toolsets
+npm run workspace:setup   # ~/hermes-workspace 클론 + .env 연결
+```
+
+### 매일 사용 (터미널 3~4개)
+
+```bash
+npm run qdrant:up           # Docker Qdrant (한 번)
+npm run hermes:gateway      # :8642 — 에이전트 API
+npm run hermes:dashboard    # :9119 — 세션·스킬 API
+npm run workspace:dev       # :3000 — 웹 UI ← 여기서 채팅
+```
+
+문서 변경 후: `npm run index`
+
+상세: [`hermes/WORKSPACE.md`](hermes/WORKSPACE.md)
+
+### 연동 (CLI만 쓸 때)
+
+```bash
+npm run hermes:setup
 npm run hermes:chat     # web + terminal + mcp-obsidian_rag + session_search
 ```
 
-`hermes:setup`은 `hermes/config.fragment.yaml`을 읽어 `mcp_servers.obsidian_rag`와 `platform_toolsets.cli`를 `~/.hermes/config.yaml`에 넣습니다. Hermes 설치 마법사 이후 **다시 실행**해도 됩니다.
+`hermes:setup`은 `hermes/config.fragment.yaml`을 읽어 `mcp_servers.obsidian_rag`와 `platform_toolsets`를 `~/.hermes/config.yaml`에 넣습니다.
 
 ### MCP 도구
 
@@ -228,8 +257,9 @@ cp .env.example .env.local
 | 변수 | 설명 |
 |------|------|
 | `VAULT_PATH` | Obsidian vault 절대 경로 |
-| `INDEX_INCLUDE` | 인덱싱 glob (예: `notion/**/*.md`) |
-| `CURSOR_API_KEY` | 웹 채팅용 ([Cursor Settings](https://cursor.com/settings)) |
+| `INDEX_INCLUDE` | 인덱싱 glob (예: `notion/**/*.md,vogopang_front/**/*.md`) |
+| `HERMES_API_KEY` | Hermes gateway API 토큰 (`workspace:setup`이 `~/hermes-workspace/.env`에 복사) |
+| `CURSOR_API_KEY` | 레거시 Next 채팅용 (`npm run dev` :3001) |
 | `RAG_INDEX_DIR` | vault 내 인덱스 폴더 (기본 `.company-rag`) |
 | `QDRANT_URL` | Qdrant REST URL (기본 `http://127.0.0.1:6333`) |
 | `QDRANT_COLLECTION` | Qdrant 컬렉션 (기본 `company-rag`) |
@@ -309,10 +339,17 @@ npm install
 
 npm run qdrant:up    # Qdrant Docker (최초 1회)
 npm run index        # 기본 증분; 전체 재인덱싱: npm run index -- --full
-npm run build-graph   # [[위키링크]]만 갱신 (임베딩 없음)
-npm run sync-index    # .company-rag/ 로 offline 스냅샷 export
+npm run sync-index   # .company-rag/ 로 offline 스냅샷 export
 
-npm run dev           # http://localhost:3000
+# ── 메인 UI (Hermes Workspace) ──
+npm run hermes:setup       # 최초 1회
+npm run workspace:setup    # 최초 1회
+npm run hermes:gateway     # :8642
+npm run hermes:dashboard   # :9119
+npm run workspace:dev      # http://localhost:3000
+
+# ── 레거시 Next RAG UI ──
+npm run dev                # http://localhost:3001
 ```
 
 md 추가·수정 후 `npm run index` → `npm run sync-index` 를 다시 실행합니다. 기본은 **증분 인덱싱**(`data/index-manifest.json`으로 mtime/size 비교)이며, 변경·추가·삭제된 md만 임베딩합니다. `npm run index -- --full`로 전체 재인덱싱할 수 있습니다.
@@ -559,6 +596,10 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | `tsx` | `index` · `sync-index` · `build-graph` CLI |
 | `npm run mcp` | Obsidian RAG MCP 서버 (stdio) |
 | `npm run hermes:setup` | Hermes `~/.hermes/config.yaml` 연동 |
+| `npm run hermes:gateway` | Hermes API server `:8642` |
+| `npm run hermes:dashboard` | Hermes dashboard `:9119` |
+| `npm run workspace:setup` | Hermes Workspace 클론 + `.env` (`~/hermes-workspace`) |
+| `npm run workspace:dev` | Hermes Workspace UI `:3000` |
 | `npm run hermes:chat` | Hermes CLI (web + terminal + MCP) |
 | `@modelcontextprotocol/sdk` | MCP 서버 (`scripts/mcp-server.ts`) |
 | `glob` | vault md 스캔 (`INDEX_INCLUDE`) |

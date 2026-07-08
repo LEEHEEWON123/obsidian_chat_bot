@@ -36,6 +36,11 @@ platform_toolsets:
     - terminal
     - mcp-obsidian_rag
     - session_search
+  api_server:
+    - web
+    - terminal
+    - mcp-obsidian_rag
+    - session_search
 
 terminal:
   backend: local
