@@ -62,7 +62,12 @@ export async function resolvePerson(
 
   const trimmed = recipient.trim();
 
-  if (/^user[a-z0-9-]+$/i.test(trimmed)) {
+  if (
+    /^user[a-z0-9-]+$/i.test(trimmed) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      trimmed,
+    )
+  ) {
     const known = directory.people.find(
       (person) =>
         person.naverWorksUserId?.toLowerCase() === trimmed.toLowerCase(),

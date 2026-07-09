@@ -55,6 +55,8 @@ function writeWorkspaceEnv(apiKey: string): void {
 HERMES_API_URL=http://127.0.0.1:8642
 HERMES_DASHBOARD_URL=http://127.0.0.1:9119
 HERMES_API_TOKEN=${apiKey}
+OBSIDIAN_CHAT_BOT_ROOT=${projectRoot}
+SHARE_LOG_FILE=${projectRoot}/data/share-log.jsonl
 PORT=3000
 # --- end obsidian_chat_bot ---
 `;

@@ -14,6 +14,7 @@ import {
   type ShareDraft,
 } from "@/lib/share/draft-store";
 import { resolvePerson, type SharePerson } from "@/lib/share/people-directory";
+import { logShareSend } from "@/lib/share/send-log";
 
 function channelsForPerson(
   person: SharePerson,
@@ -159,14 +160,28 @@ export async function confirmShareDraft(input: {
 
   try {
     const result = await deliverNaverWorks(draft, text);
+    const logPath = await logShareSend({
+      draft,
+      status: "sent",
+      botId: typeof result.botId === "string" ? result.botId : undefined,
+      requestId:
+        typeof result.requestId === "string" ? result.requestId : undefined,
+    });
     return {
       status: "sent",
       recipient: draft.recipientDisplayName,
       subject: draft.subject,
       sourcePaths: draft.sourcePaths,
       results: [result],
+      logPath,
     };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const logPath = await logShareSend({
+      draft,
+      status: "error",
+      error: message,
+    });
     restoreShareDraft(draft);
     return {
       status: "error",
@@ -176,9 +191,10 @@ export async function confirmShareDraft(input: {
         {
           channel: "naver_works",
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         },
       ],
+      logPath,
       hint:
         "NAVER Works send failed. Check NAVER_WORKS_CLIENT_ID/SECRET/SERVICE_ACCOUNT/BOT_ID + private key, " +
         "scopes (bot bot.message bot.read directory.read), and the recipient naverWorksUserId.",

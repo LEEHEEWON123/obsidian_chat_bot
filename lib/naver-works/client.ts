@@ -117,6 +117,101 @@ export async function getNaverWorksAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+export interface NaverWorksUser {
+  userId: string;
+  email?: string;
+  displayName: string;
+  aliases: string[];
+}
+
+interface WorksUserName {
+  lastName?: string | null;
+  firstName?: string | null;
+}
+
+interface WorksUserResponse {
+  userId?: string;
+  email?: string | null;
+  nickName?: string | null;
+  userName?: WorksUserName | null;
+  organizations?: Array<{ email?: string | null }> | null;
+}
+
+function buildDisplayName(user: WorksUserResponse): string {
+  const last = user.userName?.lastName?.trim() ?? "";
+  const first = user.userName?.firstName?.trim() ?? "";
+  const full = `${last}${first}`.trim();
+  if (full) return full;
+  if (user.nickName?.trim()) return user.nickName.trim();
+  const email = user.email || user.organizations?.[0]?.email;
+  if (email?.trim()) return email.trim().split("@")[0] ?? email.trim();
+  return user.userId?.trim() || "unknown";
+}
+
+function buildAliases(user: WorksUserResponse, displayName: string): string[] {
+  const aliases = new Set<string>();
+  if (displayName) aliases.add(displayName);
+  const first = user.userName?.firstName?.trim();
+  const last = user.userName?.lastName?.trim();
+  if (first) aliases.add(first);
+  if (last && first) aliases.add(`${last}${first}`);
+  if (user.nickName?.trim()) aliases.add(user.nickName.trim());
+  const email = (user.email || user.organizations?.[0]?.email)?.trim();
+  if (email) {
+    const local = email.split("@")[0]?.trim();
+    if (local) aliases.add(local);
+  }
+  return Array.from(aliases).filter(Boolean);
+}
+
+/** List domain members (requires `directory.read`). */
+export async function listNaverWorksUsers(): Promise<NaverWorksUser[]> {
+  const token = await getNaverWorksAccessToken();
+  const people: NaverWorksUser[] = [];
+  let cursor: string | undefined;
+
+  for (;;) {
+    const url = new URL("https://www.worksapis.com/v1.0/users");
+    url.searchParams.set("count", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(
+        `NAVER Works list users failed HTTP ${response.status}: ${text || "empty body"}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      users?: WorksUserResponse[];
+      responseMetaData?: { nextCursor?: string };
+    };
+
+    for (const user of data.users ?? []) {
+      const userId = user.userId?.trim();
+      if (!userId) continue;
+      const displayName = buildDisplayName(user);
+      const email =
+        user.email?.trim() || user.organizations?.[0]?.email?.trim() || undefined;
+      people.push({
+        userId,
+        email,
+        displayName,
+        aliases: buildAliases(user, displayName),
+      });
+    }
+
+    const next = data.responseMetaData?.nextCursor?.trim();
+    if (!next) break;
+    cursor = next;
+  }
+
+  return people;
+}
+
 export async function sendNaverWorksDm(options: {
   userId: string;
   text: string;

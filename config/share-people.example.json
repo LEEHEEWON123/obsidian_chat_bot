@@ -1,15 +1,10 @@
 {
   "people": [
     {
-      "aliases": ["이희원", "희원", "heewon"],
-      "displayName": "이희원",
-      "email": "heewon@example.com",
-      "naverWorksUserId": "userf7da-f82c-4284-13e7-030f3b4c756x"
-    },
-    {
-      "aliases": ["A씨", "김민수", "민수"],
-      "displayName": "김민수",
-      "naverWorksUserId": "userabcd-1234-5678-90ab-cdef01234567"
+      "aliases": ["홍길동", "길동"],
+      "displayName": "홍길동",
+      "email": "gildong@example.com",
+      "naverWorksUserId": "userxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
     }
   ]
 }

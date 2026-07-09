@@ -22,6 +22,7 @@
     "notion:export": "tsx scripts/notion-export-cli.ts",
     "pdf:export": "tsx scripts/pdf-export-cli.ts",
     "mcp": "tsx scripts/mcp-server.ts",
+    "works:sync-people": "tsx scripts/sync-works-people.ts",
     "hermes:setup": "tsx scripts/hermes-setup.ts",
     "hermes:chat": "PATH=\"$HOME/.local/bin:$PATH\" hermes chat --toolsets web,terminal,mcp-obsidian_rag,session_search",
     "hermes:dashboard": "PATH=\"$HOME/.local/bin:$PATH\" hermes dashboard"

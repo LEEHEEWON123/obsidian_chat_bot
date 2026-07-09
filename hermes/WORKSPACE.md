@@ -48,11 +48,13 @@ npm run workspace:dev     # :3000 ← 여기서 채팅
 1. NAVER Works Developer Console에서 앱 + Bot + Service Account JWT 키
    → `NAVER_WORKS_CLIENT_ID/SECRET/SERVICE_ACCOUNT/BOT_ID` + private key
    → Scope: `bot bot.message bot.read directory.read`
-2. `cp config/share-people.example.json config/share-people.json` 후
-   `naverWorksUserId` 채우기
+2. 수신자 목록:
+   `npm run works:sync-people`  → `config/share-people.json` 자동 생성
+   (Scope에 `directory.read` 필요. 기존 aliases는 유지·병합)
 3. Workspace: "A씨에게 … 요약 보내줘" → 초안 확인 → "보내"
 
 공개 채널 로그/학습은 나중에. 지금은 **개인 DM만**.
+전송 성공/실패는 `data/share-log.jsonl`에 append (gitignored).
 
 ## 인덱싱 범위
 
