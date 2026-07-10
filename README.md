@@ -217,23 +217,24 @@ npm run hermes:chat     # web + terminal + mcp-obsidian_rag + session_search
 |------|------|
 | `obsidian_rag_search` | hybrid + rerank 검색 (`retrieveRelevantChunksWithMeta`와 동일 파이프라인) |
 | `read_vault_note` | vault 상대 경로로 md **전문** 읽기 (요약용) |
-| `prepare_share` | 네이버웍스 DM 초안 작성 (**전송 안 함**). `config/share-people.json`으로 수신자 해석 |
-| `confirm_share_draft` | 사용자가 `보내` 등 명시 확인한 뒤에만 초안 전송 (`data/share-log.jsonl`에 감사 로그 append) |
+| `prepare_share` | 네이버웍스 공유 **즉시 전송** (DM/그룹방). `share-people.json` / `share-rooms.json`으로 수신 대상 해석 |
+| `confirm_share_draft` | (레거시) 초안 ID로 재전송. 보통 `prepare_share`만 사용 |
 | `cancel_share_draft` | 초안 취소 |
 
 Hermes **과거 대화**는 별도 DB(`~/.hermes/state.db`)에 자동 저장되며, `session_search`로 검색합니다 (Qdrant/vault index와 무관).
 
 MCP 서버만 단독 실행: `npm run mcp` (stdio, Hermes가 subprocess로 기동)
 
-### NAVER Works DM 공유
+### NAVER Works 공유 (DM + 그룹방)
 
-문서 요약을 **개인 네이버웍스 DM**으로 보낼 수 있습니다. Slack은 쓰지 않습니다. Hermes가 초안을 보여준 뒤, 사용자가 확인할 때만 전송합니다.
+문서 요약을 **개인 DM** 또는 **봇이 들어간 그룹 채팅방**으로 보낼 수 있습니다. Hermes가 `prepare_share`를 호출하면 **즉시 전송**됩니다.
 
 1. [Developer Console](https://developers.worksmobile.com/)에서 Client App + Bot + Service Account JWT
 2. Scope: `bot`, `bot.message`, `bot.read`, `directory.read`
 3. `.env.local`에 `NAVER_WORKS_*` 설정 (`.env.example` 참고)
 4. `npm run works:sync-people` → Works 멤버를 `config/share-people.json`에 채움 (`directory.read`)
-5. Workspace에서: `A씨에게 … 요약 보내줘` → 초안 확인 → `보내`
+5. 그룹방: Works 앱에서 채널 ID 복사 → `npm run works:sync-room -- <channelId>` → `config/share-rooms.json`
+6. Workspace에서: `A씨에게 …` 또는 `프론트 방에 …` → 즉시 전송
 
 상세: [`hermes/WORKSPACE.md`](hermes/WORKSPACE.md) · 에이전트 규칙: [`hermes/AGENTS.md`](hermes/AGENTS.md)
 
@@ -273,16 +274,20 @@ cp .env.example .env.local
 
 | 변수 | 설명 |
 |------|------|
-| `VAULT_PATH` | Obsidian vault 절대 경로 |
-| `INDEX_INCLUDE` | 인덱싱 glob (예: `notion/**/*.md,vogopang_front/**/*.md`) |
+| `VAULT_PATH` | Obsidian vault 절대 경로 (예: `.../Documents/dobedub`) |
+| `INDEX_INCLUDE` | vault **루트 기준** glob (예: `**/*.md` 또는 `notion/**/*.md,dobedub_last/**/*.md`) |
 | `HERMES_API_KEY` | Hermes gateway API 토큰 (`workspace:setup`이 `~/hermes-workspace/.env`에 복사) |
 | `CURSOR_API_KEY` | 레거시 Next 채팅용 (`npm run dev` :3001) |
 | `NAVER_WORKS_CLIENT_ID` / `CLIENT_SECRET` | Works Client App 인증 |
 | `NAVER_WORKS_SERVICE_ACCOUNT` | Service Account 이메일 |
 | `NAVER_WORKS_BOT_ID` | Bot ID |
 | `NAVER_WORKS_PRIVATE_KEY_PATH` | Service Account private key 절대 경로 (또는 `NAVER_WORKS_PRIVATE_KEY`) |
-| `NAVER_WORKS_SCOPE` | 기본 `bot bot.message bot.read directory.read` |
+| `NAVER_WORKS_SCOPE` | Service Account scope (기본 `bot bot.message bot.read directory.read`) |
+| `NAVER_WORKS_USER_OAUTH_SCOPE` | Mail용 User OAuth scope (기본 `mail.read user.read`) |
+| `NAVER_WORKS_USER_REFRESH_TOKEN` | Mail API User OAuth refresh token |
+| `NAVER_WORKS_MAIL_USER` | 조회할 메일함 userId/이메일 (예: `ykjung@dobedub.com`) |
 | `SHARE_PEOPLE_FILE` | 수신자 디렉터리 JSON (기본 `config/share-people.json`) |
+| `SHARE_ROOMS_FILE` | 그룹방 디렉터리 JSON (기본 `config/share-rooms.json`) |
 | `RAG_INDEX_DIR` | vault 내 인덱스 폴더 (기본 `.company-rag`) |
 | `QDRANT_URL` | Qdrant REST URL (기본 `http://127.0.0.1:6333`) |
 | `QDRANT_COLLECTION` | Qdrant 컬렉션 (기본 `company-rag`) |
@@ -423,14 +428,18 @@ PDF sidecar는 Qdrant `path`가 **`source_pdf`** (원본 PDF 경로)이므로 ma
 
 ### 어떤 파일이 대상인가
 
-`{VAULT_PATH}` 아래에서 **`INDEX_INCLUDE` glob**에 맞는 `.md`만 인덱싱합니다.
+`{VAULT_PATH}` 아래에서 **`INDEX_INCLUDE` glob**에 맞는 `.md`만 인덱싱합니다. glob은 **vault 루트 기준** 상대 경로입니다.
 
 ```bash
-# 권장 — 회사 문서만
-INDEX_INCLUDE=notion/**/*.md
-
-# vault 전체 (md 수천 개 → 수 시간 걸릴 수 있음)
+# vault = .../dobedub 일 때 (권장)
+VAULT_PATH=/Users/you/Documents/dobedub
 INDEX_INCLUDE=**/*.md
+
+# 일부 폴더만
+INDEX_INCLUDE=notion/**/*.md,dobedub_last/**/*.md
+
+# vault = .../Documents 이고 dobedub만 인덱싱할 때 (레거시)
+INDEX_INCLUDE=dobedub/**/*.md
 ```
 
 **자동 제외** (`lib/indexer/scan.ts`):
@@ -468,6 +477,28 @@ INDEX_INCLUDE=**/*.md
 | 청크 `content` | `# 문서제목`(섹션과 다를 때) + `# 섹션제목` + 본문 조각 |
 | payload `title` | `문서제목 — 섹션제목` (같으면 섹션만) |
 | 전처리 후 본문 없음 | 해당 파일 **청크 0개** (인덱스에서 스킵) |
+| 섹션 ≤ 800자 | **청크 1개** (이웃 overlap 없음) |
+| 토큰 기준 | ❌ **문자 수** (`String.length`) 기준, 토큰 아님 |
+
+#### 이웃 청크 (overlap)
+
+800자 초과 **같은 섹션 안**에서만 여러 청크가 생깁니다. **120은 두 번째로 자르는 크기가 아니라**, 바로 이웃한 청크끼리 **겹치는 글자 수**입니다.
+
+```
+chunk 1: [0 ──────────── 800]
+chunk 2:        [680 ──────────── 1480]
+                 ↑↑↑↑↑↑↑↑↑↑↑↑
+                 overlap 120자 (chunk1 끝 ≈ chunk2 앞)
+```
+
+- **800** = 청크 최대 길이
+- **120** = 이웃 청크가 공유하는 구간 (경계에서 문맥 끊김 완화)
+- 다음 청크 시작 위치 = `이전 끝 - 120` (stride ≈ 680자)
+- `#` 헤딩으로 나뉜 **다른 섹션** 사이에는 overlap 없음
+
+대부분 섹션은 800자 이하라 청크 1개입니다. 긴 Notion export·매뉴얼처럼 헤딩 없이 긴 본문만 여러 청크로 쪼개집니다. 분할은 문단/문장 경계가 아니라 **고정 글자 슬라이스**입니다 (Recursive Character Splitting은 미적용).
+
+구현 상수: `lib/indexer/chunk.ts` — `CHUNK_SIZE=800`, `CHUNK_OVERLAP=120` (env 없음).
 
 #### 전처리 (`cleanMarkdownForChunk`)
 
@@ -625,6 +656,9 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | `npm run workspace:dev` | Hermes Workspace UI `:3000` |
 | `npm run start:all` | gateway + dashboard + Workspace 한 번에 |
 | `npm run works:sync-people` | NAVER Works 멤버 → `config/share-people.json` |
+| `npm run works:sync-room` | channelId로 방 이름 조회 → `config/share-rooms.json` upsert |
+| `npm run works:mail-auth` | Mail User OAuth (refresh token 발급) |
+| `npm run works:mail-list` | `NAVER_WORKS_MAIL_USER` 메일함 목록 조회 |
 | `npm run hermes:chat` | Hermes CLI (web + terminal + MCP) |
 | `@modelcontextprotocol/sdk` | MCP 서버 (`scripts/mcp-server.ts`) |
 | `glob` | vault md 스캔 (`INDEX_INCLUDE`) |
