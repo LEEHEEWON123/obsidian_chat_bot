@@ -3,8 +3,9 @@ import { createHash } from "crypto";
 import { QdrantClient } from "@qdrant/js-client-rest";
 
 import { EMBEDDING_DIMENSION } from "@/lib/embeddings/local";
+import { DENSE_VECTOR_NAME, SPARSE_VECTOR_NAME } from "@/lib/sparse/bm25-text";
 
-export { EMBEDDING_DIMENSION };
+export { EMBEDDING_DIMENSION, DENSE_VECTOR_NAME, SPARSE_VECTOR_NAME };
 
 export function chunkToPointId(id: string): string {
   const hash = createHash("md5").update(id).digest("hex");
@@ -24,8 +25,15 @@ export async function ensureCollection(
   if (!exists) {
     await client.createCollection(collection, {
       vectors: {
-        size: EMBEDDING_DIMENSION,
-        distance: "Cosine",
+        [DENSE_VECTOR_NAME]: {
+          size: EMBEDDING_DIMENSION,
+          distance: "Cosine",
+        },
+      },
+      sparse_vectors: {
+        [SPARSE_VECTOR_NAME]: {
+          modifier: "idf",
+        },
       },
     });
   }

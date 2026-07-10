@@ -1,6 +1,6 @@
 import { readFile, stat } from "fs/promises";
 
-import { embedTexts } from "@/lib/embeddings/local";
+import { embedTexts, EMBEDDING_MODEL } from "@/lib/embeddings/local";
 import {
   buildNotionIdLookup,
   extractNotionPageIds,
@@ -89,17 +89,29 @@ async function scanVaultFiles(
   return scanned;
 }
 
-async function readFileEntries(scanned: ScannedFile[]): Promise<FileEntry[]> {
+async function readFileEntries(
+  scanned: ScannedFile[],
+  warnings?: string[],
+): Promise<FileEntry[]> {
   const entries: FileEntry[] = [];
   for (const file of scanned) {
-    const raw = await readFile(file.absolutePath, "utf8");
-    entries.push({
-      relativePath: file.relativePath,
-      absolutePath: file.absolutePath,
-      raw,
-      mtimeMs: file.mtimeMs,
-      size: file.size,
-    });
+    try {
+      const raw = await readFile(file.absolutePath, "utf8");
+      entries.push({
+        relativePath: file.relativePath,
+        absolutePath: file.absolutePath,
+        raw,
+        mtimeMs: file.mtimeMs,
+        size: file.size,
+      });
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error
+          ? String((error as NodeJS.ErrnoException).code)
+          : "";
+      if (code !== "ENOENT") throw error;
+      warnings?.push(`skipped missing file: ${file.relativePath}`);
+    }
   }
   return entries;
 }
@@ -228,7 +240,7 @@ async function indexFull(options: IndexOptions): Promise<IndexResult> {
   const scanned = await scanVaultFiles(options.vaultPath, options.pattern);
   console.log(`[vault] found ${scanned.length} markdown files`);
 
-  const fileEntries = await readFileEntries(scanned);
+  const fileEntries = await readFileEntries(scanned, warnings);
   const graphResult = buildGraphFromEntries(
     fileEntries.map((entry) => ({ path: entry.relativePath, raw: entry.raw })),
   );
@@ -337,7 +349,7 @@ async function indexIncremental(options: IndexOptions): Promise<IndexResult> {
   }
 
   const changedScanned = [...diff.added, ...diff.modified];
-  const changedEntries = await readFileEntries(changedScanned);
+  const changedEntries = await readFileEntries(changedScanned, warnings);
   const embedResults = await embedFileEntries(changedEntries);
   const upsertChunks = embedResults.flatMap((result) => result.chunks);
 
@@ -360,7 +372,7 @@ async function indexIncremental(options: IndexOptions): Promise<IndexResult> {
 
   await saveManifest(options.dataDir, manifest);
 
-  const allEntries = await readFileEntries(scanned);
+  const allEntries = await readFileEntries(scanned, warnings);
   const graphResult = buildGraphFromEntries(
     allEntries.map((entry) => ({ path: entry.relativePath, raw: entry.raw })),
   );
@@ -406,8 +418,10 @@ export async function indexAll(options: IndexOptions): Promise<IndexResult> {
       console.log("[index] full reindex (--full)");
     } else if (!manifest) {
       console.log("[index] full reindex (no manifest)");
-    } else {
+    } else if (manifest.embeddingModel !== EMBEDDING_MODEL) {
       console.log("[index] full reindex (embedding model changed)");
+    } else {
+      console.log("[index] full reindex (manifest/schema changed — e.g. BM25 sparse)");
     }
     return indexFull(options);
   }

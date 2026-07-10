@@ -23,8 +23,8 @@ const server = new McpServer(
       "Pass rootFolder (e.g. notion) or pathPrefix to limit search scope.",
       "Use read_vault_note to read the full markdown file before summarizing.",
       "For complex questions, search with different queries, read promising notes, then answer.",
-      "To share a summary via NAVER Works DM: prepare_share → show draft → wait for explicit confirm → confirm_share_draft.",
-      "Never call confirm_share_draft until the user clearly asks to send (보내/confirm).",
+      "To share via NAVER Works (DM or group room), call prepare_share — it sends immediately.",
+      "Recipient: person (share-people.json) or room (share-rooms.json).",
     ].join(" "),
   },
 );
@@ -33,7 +33,7 @@ server.registerTool(
   "obsidian_rag_search",
   {
     description:
-      "Hybrid semantic + keyword search over the indexed Obsidian/Notion vault. Call multiple times with different queries when the first pass is insufficient.",
+      "Hybrid dense (bge-m3) + BM25 sparse search over the indexed Obsidian/Notion vault. Call multiple times with different queries when the first pass is insufficient.",
     inputSchema: {
       query: z.string().describe("Natural-language search query"),
       topK: z
@@ -96,11 +96,13 @@ server.registerTool(
   "prepare_share",
   {
     description:
-      "Prepare a personal NAVER Works DM share draft (does NOT send). Resolve recipient from config/share-people.json.",
+      "Send a summary to NAVER Works (DM or group room). Resolves recipient from share-people.json or share-rooms.json and sends immediately.",
     inputSchema: {
       recipient: z
         .string()
-        .describe("Person name/alias from share-people.json, or Works userId"),
+        .describe(
+          "Person name/alias, room name/alias (e.g. 프론트, 프론트방), Works userId, or channelId",
+        ),
       subject: z.string().describe("Short subject/title for the DM"),
       body: z.string().describe("Message body / document summary to share"),
       sourcePaths: z
@@ -131,7 +133,7 @@ server.registerTool(
   "confirm_share_draft",
   {
     description:
-      "Send a previously prepared share draft to NAVER Works DM. ONLY after explicit user confirm (보내/confirm).",
+      "Send a previously prepared share draft to NAVER Works (DM or group room). ONLY after explicit user confirm (보내/confirm).",
     inputSchema: {
       draftId: z.string().describe("draftId returned by prepare_share"),
       channels: z

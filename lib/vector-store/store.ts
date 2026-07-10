@@ -9,7 +9,13 @@ import {
   rootFoldersFromScope,
   type PathScope,
 } from "@/lib/rag/path-scope";
-import { scoreKeywordMatch } from "@/lib/rag/query-hints";
+import {
+  bm25Document,
+  chunkToBm25Text,
+  DENSE_VECTOR_NAME,
+  SPARSE_VECTOR_NAME,
+  type Bm25DocumentVector,
+} from "@/lib/sparse/bm25-text";
 import {
   chunkToPointId,
   createQdrantClient,
@@ -78,6 +84,35 @@ function payloadFromChunk(chunk: IndexedChunk): ChunkPayload {
     payload.pageNumber = chunk.pageNumber;
   }
   return payload;
+}
+
+function embeddingFromPointVector(vector: unknown): number[] | null {
+  if (!vector) return null;
+  if (Array.isArray(vector)) {
+    return vector.map(Number);
+  }
+  if (typeof vector === "object") {
+    const named = vector as Record<string, unknown>;
+    const dense = named[DENSE_VECTOR_NAME];
+    if (Array.isArray(dense)) {
+      return dense.map(Number);
+    }
+    const values = Object.values(named).filter((item) => Array.isArray(item));
+    if (values.length === 1 && Array.isArray(values[0])) {
+      return values[0].map(Number);
+    }
+  }
+  return null;
+}
+
+function vectorsFromChunk(chunk: IndexedChunk): {
+  [DENSE_VECTOR_NAME]: number[];
+  [SPARSE_VECTOR_NAME]: Bm25DocumentVector;
+} {
+  return {
+    [DENSE_VECTOR_NAME]: chunk.embedding,
+    [SPARSE_VECTOR_NAME]: bm25Document(chunkToBm25Text(chunk)),
+  };
 }
 
 function chunkFromRecord(
@@ -170,7 +205,7 @@ export class VectorStore {
           wait: true,
           points: batch.map((chunk) => ({
             id: chunkToPointId(chunk.id),
-            vector: chunk.embedding,
+            vector: vectorsFromChunk(chunk),
             payload: payloadFromChunk(chunk),
           })),
         });
@@ -186,7 +221,7 @@ export class VectorStore {
               points: [
                 {
                   id: chunkToPointId(chunk.id),
-                  vector: chunk.embedding,
+                  vector: vectorsFromChunk(chunk),
                   payload: payloadFromChunk(chunk),
                 },
               ],
@@ -274,42 +309,56 @@ export class VectorStore {
     await this.saveMeta();
   }
 
-  async search(
-    queryEmbedding: number[],
-    topK: number,
-    scope?: PathScope,
-  ): Promise<IndexedChunk[]> {
+  async hybridRecall(options: {
+    queryText: string;
+    queryEmbedding: number[];
+    topK: number;
+    scope?: PathScope;
+  }): Promise<IndexedChunk[]> {
     if (this.meta.chunkCount === 0) return [];
 
     const client = this.client();
-    const rootFolder = rootFoldersFromScope(scope ?? {})[0];
-    const oversample = hasPathScope(scope ?? {}) ? 4 : 1;
-    const response = await client.search(this.collection, {
-      vector: queryEmbedding,
-      limit: topK * oversample,
+    const rootFolder = rootFoldersFromScope(options.scope ?? {})[0];
+    const oversample = hasPathScope(options.scope ?? {}) ? 4 : 1;
+    const limit = options.topK * oversample;
+    const filter = rootFolder
+      ? {
+          must: [{ key: "rootFolder", match: { value: rootFolder } }],
+        }
+      : undefined;
+
+    const result = await client.query(this.collection, {
+      prefetch: [
+        {
+          query: options.queryEmbedding,
+          using: DENSE_VECTOR_NAME,
+          limit,
+          filter,
+        },
+        {
+          query: bm25Document(options.queryText),
+          using: SPARSE_VECTOR_NAME,
+          limit,
+          filter,
+        },
+      ],
+      query: { fusion: "rrf" },
+      limit,
       with_payload: true,
-      with_vector: true,
-      ...(rootFolder
-        ? {
-            filter: {
-              must: [{ key: "rootFolder", match: { value: rootFolder } }],
-            },
-          }
-        : {}),
+      with_vector: [DENSE_VECTOR_NAME],
     });
 
-    return response
+    return result.points
       .map((point) => {
         const payload = point.payload as ChunkPayload | null | undefined;
-        if (!payload || !point.vector) return null;
-        const embedding = Array.isArray(point.vector)
-          ? point.vector.map(Number)
-          : Object.values(point.vector as Record<string, number>).map(Number);
+        if (!payload) return null;
+        const embedding = embeddingFromPointVector(point.vector);
+        if (!embedding) return null;
         return chunkFromRecord(payload, embedding);
       })
       .filter((chunk): chunk is IndexedChunk => chunk !== null)
-      .filter((chunk) => matchesPathScope(chunk.path, scope ?? {}))
-      .slice(0, topK);
+      .filter((chunk) => matchesPathScope(chunk.path, options.scope ?? {}))
+      .slice(0, options.topK);
   }
 
   async getChunksByPaths(paths: string[]): Promise<IndexedChunk[]> {
@@ -330,15 +379,14 @@ export class VectorStore {
         },
         limit: SCROLL_BATCH,
         with_payload: true,
-        with_vector: true,
+        with_vector: [DENSE_VECTOR_NAME],
       });
 
       for (const point of response.points) {
         const payload = point.payload as ChunkPayload | null | undefined;
-        if (!payload || !point.vector) continue;
-        const embedding = Array.isArray(point.vector)
-          ? point.vector.map(Number)
-          : Object.values(point.vector as Record<string, number>).map(Number);
+        if (!payload) continue;
+        const embedding = embeddingFromPointVector(point.vector);
+        if (!embedding) continue;
         chunks.push(chunkFromRecord(payload, embedding));
       }
     }
@@ -360,15 +408,14 @@ export class VectorStore {
         limit: SCROLL_BATCH,
         offset,
         with_payload: true,
-        with_vector: true,
+        with_vector: [DENSE_VECTOR_NAME],
       });
 
       for (const point of response.points) {
         const payload = point.payload as ChunkPayload | null | undefined;
-        if (!payload || !point.vector) continue;
-        const embedding = Array.isArray(point.vector)
-          ? point.vector.map(Number)
-          : Object.values(point.vector as Record<string, number>).map(Number);
+        if (!payload) continue;
+        const embedding = embeddingFromPointVector(point.vector);
+        if (!embedding) continue;
         chunks.push(chunkFromRecord(payload, embedding));
       }
 
@@ -378,65 +425,6 @@ export class VectorStore {
     }
 
     return chunks;
-  }
-
-  /** Keyword scan: all terms must appear in path, title, or content. */
-  async findChunksByKeywords(options: {
-    terms: string[];
-    rootFolders?: string[];
-    pathScope?: PathScope;
-    limit: number;
-  }): Promise<IndexedChunk[]> {
-    const { terms, limit } = options;
-    const pathScope = options.pathScope ?? {};
-    const rootFolders =
-      options.rootFolders ?? rootFoldersFromScope(pathScope);
-    if (terms.length === 0 || this.meta.chunkCount === 0) return [];
-
-    const client = this.client();
-    const scored: Array<{ chunk: IndexedChunk; score: number }> = [];
-    let offset: string | number | undefined;
-    const scoped = hasPathScope(pathScope) || rootFolders.length > 0;
-    const maxBatches = scoped ? 200 : 80;
-
-    for (let batch = 0; batch < maxBatches; batch++) {
-      const response = await client.scroll(this.collection, {
-        limit: SCROLL_BATCH,
-        offset,
-        with_payload: true,
-        with_vector: true,
-        ...(rootFolders.length === 1
-          ? {
-              filter: {
-                must: [{ key: "rootFolder", match: { value: rootFolders[0] } }],
-              },
-            }
-          : {}),
-      });
-
-      for (const point of response.points) {
-        const payload = point.payload as ChunkPayload | null | undefined;
-        if (!payload || !point.vector) continue;
-
-        if (!matchesPathScope(payload.path, pathScope)) continue;
-
-        const embedding = Array.isArray(point.vector)
-          ? point.vector.map(Number)
-          : Object.values(point.vector as Record<string, number>).map(Number);
-        const chunk = chunkFromRecord(payload, embedding);
-        const score = scoreKeywordMatch(chunk, terms);
-        if (score > 0) scored.push({ chunk, score });
-      }
-
-      if (response.points.length < SCROLL_BATCH) break;
-      offset = normalizeScrollOffset(response.next_page_offset);
-      if (offset === undefined) break;
-    }
-
-    return scored
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map((item) => item.chunk);
   }
 
   /** All chunks from pages that match any of the given ISO dates (title or body). */

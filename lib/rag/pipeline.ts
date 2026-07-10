@@ -3,7 +3,7 @@ import { embedText } from "@/lib/embeddings/local";
 import { GraphStore } from "@/lib/graph/store";
 import { appendLinkedContextChunks } from "@/lib/rag/note-context";
 import { rerankChunks } from "@/lib/rerank/local";
-import { mergeHybridResults, type ScoredChunk } from "@/lib/rag/hybrid";
+import { type ScoredChunk } from "@/lib/rag/hybrid";
 import { extractDatesFromQuery } from "@/lib/rag/query-dates";
 import {
   hasPathScope,
@@ -11,7 +11,7 @@ import {
   normalizePathScopeValue,
   type PathScope,
 } from "@/lib/rag/path-scope";
-import { parseQuery, scoreKeywordMatch } from "@/lib/rag/query-hints";
+import { parseQuery } from "@/lib/rag/query-hints";
 import { VectorStore, type IndexedChunk } from "@/lib/vector-store/store";
 
 export interface ChatMessage {
@@ -33,12 +33,6 @@ export interface RetrievedChunkMeta {
   chunk: IndexedChunk;
   score: number;
   source: "keyword" | "semantic" | "rerank" | "graph" | "note" | "link";
-}
-
-function dot(a: number[], b: number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += a[i] * b[i];
-  return sum;
 }
 
 export async function retrieveRelevantChunksWithMeta(options: {
@@ -79,35 +73,19 @@ export async function retrieveRelevantChunksWithMeta(options: {
   const parsed = parseQuery(options.query);
   const semanticQuery = parsed.semanticQuery || options.query;
 
-  const keywordChunks =
-    parsed.terms.length > 0
-      ? await store.findChunksByKeywords({
-          terms: parsed.terms,
-          pathScope,
-          limit: recallK,
-        })
-      : [];
-
-  const keywordScored: ScoredChunk[] = keywordChunks.map((chunk) => ({
-    chunk,
-    score: scoreKeywordMatch(chunk, parsed.terms),
-    source: "keyword",
-  }));
-
   const queryEmbedding = await embedText(semanticQuery);
-  const semanticChunks = await store.search(queryEmbedding, recallK, pathScope);
+  const recalled = await store.hybridRecall({
+    queryText: semanticQuery,
+    queryEmbedding,
+    topK: recallK,
+    scope: pathScope,
+  });
 
-  const semanticScored: ScoredChunk[] = semanticChunks.map((chunk) => ({
+  let candidates: ScoredChunk[] = recalled.map((chunk) => ({
     chunk,
-    score: dot(queryEmbedding, chunk.embedding),
+    score: 0,
     source: "semantic",
   }));
-
-  let candidates = mergeHybridResults({
-    keyword: keywordScored,
-    semantic: semanticScored,
-    limit: recallK,
-  });
 
   if (hasPathScope(pathScope)) {
     candidates = candidates.filter((item) =>

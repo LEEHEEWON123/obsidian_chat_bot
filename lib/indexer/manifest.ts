@@ -3,7 +3,7 @@ import path from "path";
 
 import { EMBEDDING_MODEL } from "@/lib/embeddings/local";
 
-export const MANIFEST_VERSION = 1;
+export const MANIFEST_VERSION = 2;
 
 export interface ManifestEntry {
   mtimeMs: number;
