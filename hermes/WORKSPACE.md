@@ -43,7 +43,7 @@ npm run workspace:dev     # :3000 ← 여기서 채팅
 
 ## NAVER Works DM 공유 (개인 전송 + 승인)
 
-문서 요약을 동료 Works DM으로 보내려면:
+문서 요약을 동료 Works DM 또는 그룹 채팅방으로 보내려면:
 
 1. NAVER Works Developer Console에서 앱 + Bot + Service Account JWT 키
    → `NAVER_WORKS_CLIENT_ID/SECRET/SERVICE_ACCOUNT/BOT_ID` + private key
@@ -51,18 +51,20 @@ npm run workspace:dev     # :3000 ← 여기서 채팅
 2. 수신자 목록:
    `npm run works:sync-people`  → `config/share-people.json` 자동 생성
    (Scope에 `directory.read` 필요. 기존 aliases는 유지·병합)
-3. Workspace: "A씨에게 … 요약 보내줘" → 초안 확인 → "보내"
+3. 그룹방 목록 (봇이 들어간 방만):
+   Works 앱 → 방 서랍 → 채널 ID 복사 →
+   `npm run works:sync-room -- <channelId>` → `config/share-rooms.json`
+4. Workspace: "A씨에게 …" 또는 "프론트 방에 …" → `prepare_share` 즉시 전송
 
-공개 채널 로그/학습은 나중에. 지금은 **개인 DM만**.
 전송 성공/실패는 `data/share-log.jsonl`에 append (gitignored).
 
 ## 인덱싱 범위
 
 `.env.local`의 `INDEX_INCLUDE`:
 
-- `dobedub/**/*.md` (notion, dubright, pudding, vogopang 전부 포함)
+- `**/*.md` (vault = `dobedub/` 루트)
 
-Hermes가 vault 검색할 때 `AGENTS.md` + MCP `pathPrefix`/`rootFolder: "dobedub"`로 스코프합니다.
+Hermes가 vault 검색할 때 `AGENTS.md` + MCP `pathPrefix`/`rootFolder`로 스코프합니다.
 
 ## 구 UI (Next.js ChatPanel)
 

@@ -6,10 +6,12 @@ export interface ShareDraft {
   draftId: string;
   createdAt: number;
   expiresAt: number;
+  targetKind: "person" | "room";
   recipientAlias: string;
   recipientDisplayName: string;
   channels: ShareChannel[];
   naverWorksUserId?: string;
+  naverWorksChannelId?: string;
   subject: string;
   body: string;
   sourcePaths: string[];
@@ -37,10 +39,12 @@ function newDraftId(): string {
 }
 
 export function createShareDraft(input: {
+  targetKind: "person" | "room";
   recipientAlias: string;
   recipientDisplayName: string;
   channels: ShareChannel[];
   naverWorksUserId?: string;
+  naverWorksChannelId?: string;
   subject: string;
   body: string;
   sourcePaths: string[];
@@ -51,10 +55,12 @@ export function createShareDraft(input: {
     draftId: newDraftId(),
     createdAt: now,
     expiresAt: now + ttlMs(),
+    targetKind: input.targetKind,
     recipientAlias: input.recipientAlias,
     recipientDisplayName: input.recipientDisplayName,
     channels: input.channels,
     naverWorksUserId: input.naverWorksUserId,
+    naverWorksChannelId: input.naverWorksChannelId,
     subject: input.subject.trim(),
     body: input.body.trim(),
     sourcePaths: Array.from(
@@ -102,9 +108,11 @@ export function draftPreview(draft: ShareDraft): Record<string, unknown> {
   return {
     draftId: draft.draftId,
     expiresAt: new Date(draft.expiresAt).toISOString(),
+    targetKind: draft.targetKind,
     recipient: draft.recipientDisplayName,
     channels: draft.channels,
     naverWorksUserId: draft.naverWorksUserId ?? null,
+    naverWorksChannelId: draft.naverWorksChannelId ?? null,
     subject: draft.subject,
     body: draft.body,
     sourcePaths: draft.sourcePaths,

@@ -106,6 +106,7 @@ flowchart TD
 | 명령 | 역할 |
 |------|------|
 | `npm run pdf:export` | PDF → `.pdf-index/**/*.md` sidecar (Java 11+, [OpenDataLoader](https://github.com/opendataloader-project/opendataloader-pdf)) |
+| `npm run docx:export` | DOCX → `.docx-index/**/*.md` sidecar (Python, [MarkItDown](https://github.com/microsoft/markitdown)) |
 | `npm run index` | md → 청킹 → bge-m3 임베딩 → **Qdrant** + graph (기본 **증분**) |
 | `npm run sync-index` | Qdrant + graph → vault `.company-rag/` (Obsidian offline용) |
 | `npm run build-graph` | wikilink 그래프만 재빌드 (임베딩 없음) |
@@ -216,9 +217,24 @@ npm run hermes:chat     # web + terminal + mcp-obsidian_rag + session_search
 |------|------|
 | `obsidian_rag_search` | hybrid + rerank 검색 (`retrieveRelevantChunksWithMeta`와 동일 파이프라인) |
 | `read_vault_note` | vault 상대 경로로 md **전문** 읽기 (요약용) |
+| `ax_asset_query` | AX 면접 케이스 CSV 조인 (성과 top-N, 브랜드/기간/심사 필터) |
+| `ax_image_search` | AX 썸네일 CLIP 텍스트→이미지 검색 (사용 장면 등) |
 | `prepare_share` | 네이버웍스 공유 **즉시 전송** (DM/그룹방). `share-people.json` / `share-rooms.json`으로 수신 대상 해석 |
 | `confirm_share_draft` | (레거시) 초안 ID로 재전송. 보통 `prepare_share`만 사용 |
 | `cancel_share_draft` | 초안 취소 |
+
+#### AX 케이스 (CSV + CLIP)
+
+```bash
+python3 -m venv .venv-ax-clip
+.venv-ax-clip/bin/pip install -r requirements-ax-clip.txt
+# .env.local: AX_CASE_DIR=.../ax_pre_interview_case_exercise
+#            AX_PYTHON=.../.venv-ax-clip/bin/python
+npm run ax:clip-index   # thumbnails → data/ax-clip-index.json
+npm run ax:smoke        # 성과 top3
+```
+
+Hermes는 성과/필터 → `ax_asset_query`, 비주얼 → `ax_image_search`를 씁니다 (`hermes/AGENTS.md`).
 
 Hermes **과거 대화**는 별도 DB(`~/.hermes/state.db`)에 자동 저장되며, `session_search`로 검색합니다 (Qdrant/vault index와 무관).
 
@@ -303,6 +319,24 @@ cp .env.example .env.local
 | `PDF_HYBRID` | 스캔 PDF OCR 시 `docling-fast` (hybrid 서버 필요) |
 | `PDF_HYBRID_URL` | hybrid OCR 서버 URL (기본 `http://127.0.0.1:5002`) |
 | `PDF_HYBRID_MODE` | 이미지 PDF OCR 모드 (기본 `full`) |
+| `DOCX_INCLUDE` | export 대상 DOCX glob (기본 `**/*.docx`) |
+| `DOCX_INDEX_DIR` | sidecar md 저장 폴더 (기본 `.docx-index`). `npm run index`에 자동 포함 |
+
+---
+
+## DOCX 검색
+
+Word(`.docx`)는 [MarkItDown](https://github.com/microsoft/markitdown)으로 md sidecar를 만든 뒤 PDF와 같이 인덱싱합니다. (표·제목 구조는 대체로 유지, 병합 셀/텍스트박스는 손실 가능)
+
+```bash
+# Python 3.10+ (macOS: brew install python)
+python3 -m venv .venv-docx
+.venv-docx/bin/pip install -r requirements-docx.txt
+npm run docx:export                     # vault DOCX → .docx-index/**/*.md
+npm run index
+```
+
+Sidecar frontmatter 예: `source_docx`, `source_type: docx`. Qdrant `path`는 **원본 DOCX** 경로입니다.
 
 ---
 
@@ -650,6 +684,8 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 |-------------------|------|
 | `tsx` | `index` · `sync-index` · `build-graph` CLI |
 | `npm run mcp` | Obsidian RAG MCP 서버 (stdio) |
+| `npm run ax:clip-index` | AX 케이스 썸네일 CLIP 인덱싱 |
+| `npm run ax:smoke` | AX CSV top3 / CLIP 검색 스모크 |
 | `npm run hermes:setup` | Hermes `~/.hermes/config.yaml` 연동 |
 | `npm run hermes:gateway` | Hermes API server `:8642` |
 | `npm run hermes:dashboard` | Hermes dashboard `:9119` |

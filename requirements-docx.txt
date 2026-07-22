@@ -1,0 +1,2 @@
+# DOCX → markdown for RAG (npm run docx:export)
+markitdown[docx]>=0.1.6

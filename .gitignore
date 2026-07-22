@@ -22,6 +22,12 @@
 /data/
 /qdrant_data/
 
+# markitdown DOCX export venv
+.venv-docx/
+
+# AX CLIP python venv
+.venv-ax-clip/
+
 # misc
 .DS_Store
 *.pem
@@ -39,6 +45,7 @@ yarn-error.log*
 
 # local people directories (may contain real member IDs)
 /config/share-people.json
+/config/share-rooms.json
 # NAVER Works private key files if stored in-repo by mistake
 *.key
 !*.key.example

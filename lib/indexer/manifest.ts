@@ -9,7 +9,7 @@ export interface ManifestEntry {
   mtimeMs: number;
   size: number;
   chunkCount: number;
-  /** Paths stored in Qdrant payload (PDF sidecars use `source_pdf`). */
+  /** Paths stored in Qdrant payload (PDF/DOCX sidecars use source_* paths). */
   qdrantPaths: string[];
 }
 

@@ -2,6 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import {
+  axAssetQueryTool,
+  axImageSearchTool,
+} from "../lib/ax-case/mcp-tools";
 import { loadLocalEnv } from "../lib/env/load-local-env";
 import { obsidianRagSearch, readVaultNote } from "../lib/mcp/vault-tools";
 import {
@@ -19,10 +23,11 @@ const server = new McpServer(
   },
   {
     instructions: [
-      "Use obsidian_rag_search to find indexed vault chunks.",
+      "Prefer few tool calls: one focused obsidian_rag_search is enough for most vault lookups; re-search at most once.",
       "Pass rootFolder (e.g. notion) or pathPrefix to limit search scope.",
-      "Use read_vault_note to read the full markdown file before summarizing.",
-      "For complex questions, search with different queries, read promising notes, then answer.",
+      "Use read_vault_note only when snippets are insufficient (1–2 paths).",
+      "AX interview case: ax_asset_query for CSV metrics/filters; ax_image_search for visual concepts. Do not also vault-search unless asked.",
+      "Mixed AX requests: at most one ax_asset_query + one ax_image_search, then answer.",
       "To share via NAVER Works (DM or group room), call prepare_share — it sends immediately.",
       "Recipient: person (share-people.json) or room (share-rooms.json).",
     ].join(" "),
@@ -86,6 +91,73 @@ server.registerTool(
   },
   async ({ path: notePath }) => {
     const result = await readVaultNote(notePath);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  "ax_asset_query",
+  {
+    description:
+      "Query AX case CSV tables (assets, campaigns, reviews, performance). Use for structured asks: top performers, brand/period filters, review status, asset detail. Prefer this over vault RAG for metrics like CTR/conversions.",
+    inputSchema: {
+      operation: z
+        .enum([
+          "list_tables",
+          "top_performers",
+          "filter_assets",
+          "asset_detail",
+        ])
+        .describe("Query operation"),
+      metric: z
+        .enum(["ctr", "conversions", "clicks", "spend", "cpa"])
+        .optional()
+        .describe("Ranking metric for top_performers (default conversions)"),
+      limit: z.number().int().min(1).max(50).optional(),
+      brand: z.string().optional().describe("Brand name contains, e.g. 가상브랜드A"),
+      campaignId: z.string().optional(),
+      assetId: z.string().optional().describe("Required for asset_detail"),
+      fileType: z.enum(["image", "video"]).optional(),
+      reviewStatus: z
+        .enum(["approved", "rejected", "revision_required"])
+        .optional(),
+      tagContains: z.string().optional(),
+      periodFrom: z.string().optional().describe("YYYY-MM-DD"),
+      periodTo: z.string().optional().describe("YYYY-MM-DD"),
+      confirmedOnly: z
+        .boolean()
+        .optional()
+        .describe("Use only 확정 performance rows (default true)"),
+    },
+  },
+  async (args) => {
+    const result = await axAssetQueryTool(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  "ax_image_search",
+  {
+    description:
+      "CLIP text-to-image search over AX case thumbnails. Finds assets by visual concepts (e.g. 사용 장면, 얼굴 비교, 주방, 여성). Requires npm run ax:clip-index first. Enrich joins CSV metadata by default.",
+    inputSchema: {
+      query: z
+        .string()
+        .describe("Visual concept query in Korean or English"),
+      topK: z.number().int().min(1).max(20).optional(),
+      enrich: z
+        .boolean()
+        .optional()
+        .describe("Attach CSV asset_detail for each hit (default true)"),
+    },
+  },
+  async ({ query, topK, enrich }) => {
+    const result = await axImageSearchTool({ query, topK, enrich });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };

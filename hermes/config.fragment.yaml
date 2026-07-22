@@ -2,7 +2,7 @@
 #
 # Enables:
 #   1) Multi-step vault RAG via MCP (obsidian_rag_search, read_vault_note)
-#   2) NAVER Works DM share (prepare_share → confirm_share_draft)
+#   2) NAVER Works share (prepare_share — immediate send)
 #   3) session_search (past Hermes chats in ~/.hermes/state.db)
 #   4) web_search + terminal (vault-outside work)
 #

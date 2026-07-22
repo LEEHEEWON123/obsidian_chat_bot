@@ -10,7 +10,7 @@ const IGNORED = [
   "**/.docx-index/**",
 ];
 
-export async function scanPdfFiles(
+export async function scanDocxFiles(
   vaultPath: string,
   pattern: string,
 ): Promise<string[]> {
@@ -21,25 +21,27 @@ export async function scanPdfFiles(
     ignore: IGNORED,
   });
 
-  return files.sort();
+  return files
+    .filter((file) => file.toLowerCase().endsWith(".docx"))
+    .sort();
 }
 
-export function pdfSidecarRelativePath(
-  pdfRelativePath: string,
+export function docxSidecarRelativePath(
+  docxRelativePath: string,
   indexDir: string,
 ): string {
-  const normalized = pdfRelativePath.replace(/\\/g, "/");
+  const normalized = docxRelativePath.replace(/\\/g, "/");
   return `${indexDir.replace(/\\/g, "/").replace(/\/$/, "")}/${normalized}.md`;
 }
 
-export function sidecarPathForPdf(
+export function sidecarPathForDocx(
   vaultPath: string,
-  pdfAbsolutePath: string,
+  docxAbsolutePath: string,
   indexDir: string,
 ): string {
   const relative = path
-    .relative(vaultPath, pdfAbsolutePath)
+    .relative(vaultPath, docxAbsolutePath)
     .split(path.sep)
     .join("/");
-  return path.join(vaultPath, pdfSidecarRelativePath(relative, indexDir));
+  return path.join(vaultPath, docxSidecarRelativePath(relative, indexDir));
 }

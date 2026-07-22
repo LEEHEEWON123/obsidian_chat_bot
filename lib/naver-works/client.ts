@@ -249,3 +249,76 @@ export async function sendNaverWorksDm(options: {
 
   return { botId, userId: options.userId, requestId };
 }
+
+export interface NaverWorksChannel {
+  domainId: number;
+  channelId: string;
+  title: string;
+  channelType: {
+    type: "SINGLE_USER" | "MULTI_USERS" | "ORGUNIT" | "GROUP";
+    orgUnitId?: string;
+    groupId?: string;
+  };
+}
+
+/** Fetch message room details (requires `bot.read`). */
+export async function getNaverWorksChannel(
+  channelId: string,
+): Promise<NaverWorksChannel> {
+  const botId = requiredEnv("NAVER_WORKS_BOT_ID");
+  const token = await getNaverWorksAccessToken();
+
+  const response = await fetch(
+    `https://www.worksapis.com/v1.0/bots/${encodeURIComponent(botId)}/channels/${encodeURIComponent(channelId)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `NAVER Works channel lookup failed HTTP ${response.status}: ${text || "empty body"}`,
+    );
+  }
+
+  return (await response.json()) as NaverWorksChannel;
+}
+
+export async function sendNaverWorksChannelMessage(options: {
+  channelId: string;
+  text: string;
+}): Promise<{ botId: string; channelId: string; requestId: string }> {
+  const botId = requiredEnv("NAVER_WORKS_BOT_ID");
+  const token = await getNaverWorksAccessToken();
+  const requestId = createHash("sha256")
+    .update(`${Date.now()}:${options.channelId}:${options.text.slice(0, 32)}`)
+    .digest("hex")
+    .slice(0, 16);
+
+  const response = await fetch(
+    `https://www.worksapis.com/v1.0/bots/${encodeURIComponent(botId)}/channels/${encodeURIComponent(options.channelId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content: {
+          type: "text",
+          text: options.text,
+        },
+      }),
+    },
+  );
+
+  if (response.status !== 201 && !response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `NAVER Works channel send failed HTTP ${response.status}: ${text || "empty body"}`,
+    );
+  }
+
+  return { botId, channelId: options.channelId, requestId };
+}

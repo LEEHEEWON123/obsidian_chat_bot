@@ -6,6 +6,16 @@ const IGNORED = [
   "**/.git/**",
   "**/.obsidian/**",
   "**/.trash/**",
+  "**/.venv/**",
+  "**/_workspace/**",
+  "**/_workspace_prev/**",
+  "**/coverage/**",
+  "**/test-results/**",
+  "**/playwright-report/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/vendor/**",
+  "**/libs/**",
 ];
 
 export async function scanMarkdownFiles(

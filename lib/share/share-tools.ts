@@ -1,4 +1,7 @@
-import { sendNaverWorksDm } from "@/lib/naver-works/client";
+import {
+  sendNaverWorksChannelMessage,
+  sendNaverWorksDm,
+} from "@/lib/naver-works/client";
 import {
   ALL_SHARE_CHANNELS,
   formatShareMessage,
@@ -9,19 +12,32 @@ import {
   cancelShareDraft,
   consumeShareDraft,
   createShareDraft,
-  draftPreview,
   restoreShareDraft,
   type ShareDraft,
 } from "@/lib/share/draft-store";
-import { resolvePerson, type SharePerson } from "@/lib/share/people-directory";
+import type { SharePerson } from "@/lib/share/people-directory";
+import type { ShareRoom } from "@/lib/share/rooms-directory";
 import { logShareSend } from "@/lib/share/send-log";
+import { resolveShareTarget } from "@/lib/share/target-resolver";
 
-function channelsForPerson(
-  person: SharePerson,
+function channelsForTarget(
   requested: ShareChannel[],
 ):
   | { ok: true; channels: ShareChannel[] }
   | { ok: false; error: string } {
+  const selected = requested.filter((channel) => channel === "naver_works");
+  if (selected.length === 0) {
+    return {
+      ok: false,
+      error: `Only naver_works is supported. Got: [${requested.join(", ")}]`,
+    };
+  }
+  return { ok: true, channels: ["naver_works"] };
+}
+
+function validatePersonTarget(
+  person: SharePerson,
+): { ok: true } | { ok: false; error: string } {
   if (!person.naverWorksUserId) {
     return {
       ok: false,
@@ -30,16 +46,20 @@ function channelsForPerson(
         "in config/share-people.json.",
     };
   }
+  return { ok: true };
+}
 
-  const selected = requested.filter((channel) => channel === "naver_works");
-  if (selected.length === 0) {
+function validateRoomTarget(
+  room: ShareRoom,
+): { ok: true } | { ok: false; error: string } {
+  if (!room.naverWorksChannelId) {
     return {
       ok: false,
-      error: `Only naver_works is supported. Got: [${requested.join(", ")}]`,
+      error:
+        `Room "${room.title}" has no naverWorksChannelId in config/share-rooms.json.`,
     };
   }
-
-  return { ok: true, channels: ["naver_works"] };
+  return { ok: true };
 }
 
 export async function prepareShare(input: {
@@ -60,7 +80,7 @@ export async function prepareShare(input: {
     };
   }
 
-  const resolved = await resolvePerson(input.recipient);
+  const resolved = await resolveShareTarget(input.recipient);
   if (!resolved.ok) {
     return {
       status: "error",
@@ -74,31 +94,70 @@ export async function prepareShare(input: {
     return { status: "error", error: "body is empty — summarize the document first" };
   }
 
-  const channelPick = channelsForPerson(resolved.person, requested);
+  const channelPick = channelsForTarget(requested);
   if (!channelPick.ok) {
     return { status: "error", error: channelPick.error };
   }
 
+  const { target } = resolved;
+
+  if (target.kind === "person") {
+    const valid = validatePersonTarget(target.person);
+    if (!valid.ok) return { status: "error", error: valid.error };
+
+    const draft = createShareDraft({
+      targetKind: "person",
+      recipientAlias: input.recipient,
+      recipientDisplayName: target.displayName,
+      channels: channelPick.channels,
+      naverWorksUserId: target.person.naverWorksUserId,
+      subject: input.subject || "문서 요약 공유",
+      body,
+      sourcePaths: input.sourcePaths ?? [],
+    });
+
+    return confirmShareDraft({ draftId: draft.draftId });
+  }
+
+  const valid = validateRoomTarget(target.room);
+  if (!valid.ok) return { status: "error", error: valid.error };
+
   const draft = createShareDraft({
+    targetKind: "room",
     recipientAlias: input.recipient,
-    recipientDisplayName: resolved.person.displayName,
+    recipientDisplayName: target.displayName,
     channels: channelPick.channels,
-    naverWorksUserId: resolved.person.naverWorksUserId,
+    naverWorksChannelId: target.room.naverWorksChannelId,
     subject: input.subject || "문서 요약 공유",
     body,
     sourcePaths: input.sourcePaths ?? [],
   });
 
-  return {
-    status: "draft_ready",
-    ...draftPreview(draft),
-  };
+  return confirmShareDraft({ draftId: draft.draftId });
 }
 
 async function deliverNaverWorks(
   draft: ShareDraft,
   text: string,
 ): Promise<Record<string, unknown>> {
+  if (draft.targetKind === "room") {
+    if (!draft.naverWorksChannelId) {
+      throw new Error("Draft missing naverWorksChannelId");
+    }
+    const sent = await sendNaverWorksChannelMessage({
+      channelId: draft.naverWorksChannelId,
+      text,
+    });
+    return {
+      channel: "naver_works",
+      status: "sent",
+      targetKind: "room",
+      naverWorksChannelId: draft.naverWorksChannelId,
+      botId: sent.botId,
+      requestId: sent.requestId,
+    };
+  }
+
   if (!draft.naverWorksUserId) {
     throw new Error("Draft missing naverWorksUserId");
   }
@@ -109,6 +168,7 @@ async function deliverNaverWorks(
   return {
     channel: "naver_works",
     status: "sent",
+    targetKind: "person",
     naverWorksUserId: draft.naverWorksUserId,
     botId: sent.botId,
     requestId: sent.requestId,
@@ -169,6 +229,7 @@ export async function confirmShareDraft(input: {
     });
     return {
       status: "sent",
+      targetKind: draft.targetKind,
       recipient: draft.recipientDisplayName,
       subject: draft.subject,
       sourcePaths: draft.sourcePaths,
@@ -186,6 +247,7 @@ export async function confirmShareDraft(input: {
     return {
       status: "error",
       draftId: draft.draftId,
+      targetKind: draft.targetKind,
       recipient: draft.recipientDisplayName,
       results: [
         {
@@ -197,7 +259,7 @@ export async function confirmShareDraft(input: {
       logPath,
       hint:
         "NAVER Works send failed. Check NAVER_WORKS_CLIENT_ID/SECRET/SERVICE_ACCOUNT/BOT_ID + private key, " +
-        "scopes (bot bot.message bot.read directory.read), and the recipient naverWorksUserId.",
+        "scopes (bot bot.message bot.read directory.read), and the recipient userId or room channelId.",
     };
   }
 }

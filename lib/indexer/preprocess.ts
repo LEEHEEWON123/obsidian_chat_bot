@@ -2,6 +2,7 @@ export interface ParsedMarkdown {
   body: string;
   documentTitle?: string;
   sourcePdf?: string;
+  sourceDocx?: string;
   sourceType?: string;
   /** 1-based line where `body` starts in the original file */
   bodyStartLine: number;
@@ -24,11 +25,19 @@ export function parseFrontmatter(raw: string): ParsedMarkdown {
   const body = raw.slice(bodyStart);
   const documentTitle = extractFrontmatterTitle(frontmatter);
   const sourcePdf = extractFrontmatterValue(frontmatter, "source_pdf");
+  const sourceDocx = extractFrontmatterValue(frontmatter, "source_docx");
   const sourceType = extractFrontmatterValue(frontmatter, "source_type");
   const bodyStartLine =
     (raw.slice(0, bodyStart).match(/\n/g)?.length ?? 0) + 1;
 
-  return { body, documentTitle, sourcePdf, sourceType, bodyStartLine };
+  return {
+    body,
+    documentTitle,
+    sourcePdf,
+    sourceDocx,
+    sourceType,
+    bodyStartLine,
+  };
 }
 
 function extractFrontmatterValue(

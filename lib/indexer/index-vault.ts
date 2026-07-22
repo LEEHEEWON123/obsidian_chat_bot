@@ -173,10 +173,10 @@ async function embedFileEntries(
       console.log(`[vault] embedding ${i}/${fileEntries.length}...`);
     }
 
-    const { sourcePdf } = parseFrontmatter(raw);
+    const { sourcePdf, sourceDocx } = parseFrontmatter(raw);
     const fileChunks = chunkMarkdown(relativePath, raw).map((chunk) => ({
       ...chunk,
-      path: sourcePdf ?? chunk.path,
+      path: sourcePdf ?? sourceDocx ?? chunk.path,
     }));
     if (fileChunks.length === 0) {
       results.push({

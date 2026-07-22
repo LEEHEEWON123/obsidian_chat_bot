@@ -7,9 +7,11 @@ export interface ShareSendLogEntry {
   ts: string;
   status: "sent" | "error";
   draftId: string;
+  targetKind: "person" | "room";
   recipient: string;
   recipientAlias: string;
   naverWorksUserId: string | null;
+  naverWorksChannelId: string | null;
   subject: string;
   body: string;
   sourcePaths: string[];
@@ -46,9 +48,11 @@ export async function logShareSend(options: {
       ts: new Date().toISOString(),
       status: options.status,
       draftId: options.draft.draftId,
+      targetKind: options.draft.targetKind,
       recipient: options.draft.recipientDisplayName,
       recipientAlias: options.draft.recipientAlias,
       naverWorksUserId: options.draft.naverWorksUserId ?? null,
+      naverWorksChannelId: options.draft.naverWorksChannelId ?? null,
       subject: options.draft.subject,
       body: options.draft.body,
       sourcePaths: options.draft.sourcePaths,

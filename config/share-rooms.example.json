@@ -1,0 +1,9 @@
+{
+  "rooms": [
+    {
+      "aliases": ["프론트", "프론트방", "front"],
+      "title": "프론트",
+      "naverWorksChannelId": "room-channel-id-from-works-drawer"
+    }
+  ]
+}

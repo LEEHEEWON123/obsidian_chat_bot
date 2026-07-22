@@ -8,6 +8,8 @@ export interface AppConfig {
   pdfHybrid: string;
   pdfHybridUrl: string;
   pdfHybridMode: string;
+  docxInclude: string;
+  docxIndexDir: string;
   topK: number;
   recallK: number;
   rerankEnabled: boolean;
@@ -21,22 +23,26 @@ export interface AppConfig {
   qdrantCollection: string;
 }
 
-function buildIndexInclude(base: string, pdfIndexDir: string): string {
-  const normalized = pdfIndexDir.replace(/\\/g, "/").replace(/\/$/, "");
+function appendIndexDir(base: string, indexDir: string): string {
+  const normalized = indexDir.replace(/\\/g, "/").replace(/\/$/, "");
   if (!normalized) return base;
 
-  const pdfPattern = `${normalized}/**/*.md`;
+  const pattern = `${normalized}/**/*.md`;
   if (base.includes(normalized)) return base;
-  if (!base.trim()) return pdfPattern;
-  return `${base},${pdfPattern}`;
+  if (!base.trim()) return pattern;
+  return `${base},${pattern}`;
 }
 
 export function getConfig(): AppConfig {
   const pdfIndexDir = process.env.PDF_INDEX_DIR ?? ".pdf-index";
-  const indexInclude = buildIndexInclude(
-    process.env.INDEX_INCLUDE ?? "**/*.md",
-    process.env.PDF_INDEX_ENABLED === "false" ? "" : pdfIndexDir,
-  );
+  const docxIndexDir = process.env.DOCX_INDEX_DIR ?? ".docx-index";
+  let indexInclude = process.env.INDEX_INCLUDE ?? "**/*.md";
+  if (process.env.PDF_INDEX_ENABLED !== "false") {
+    indexInclude = appendIndexDir(indexInclude, pdfIndexDir);
+  }
+  if (process.env.DOCX_INDEX_ENABLED !== "false") {
+    indexInclude = appendIndexDir(indexInclude, docxIndexDir);
+  }
 
   return {
     vaultPath: process.env.VAULT_PATH ?? "",
@@ -48,6 +54,8 @@ export function getConfig(): AppConfig {
     pdfHybrid: process.env.PDF_HYBRID ?? "",
     pdfHybridUrl: process.env.PDF_HYBRID_URL ?? "",
     pdfHybridMode: process.env.PDF_HYBRID_MODE ?? "full",
+    docxInclude: process.env.DOCX_INCLUDE ?? "**/*.docx",
+    docxIndexDir,
     topK: Number(process.env.RAG_TOP_K ?? 5),
     recallK: Number(process.env.RAG_RECALL_K ?? 50),
     rerankEnabled: process.env.RERANK_ENABLED !== "false",
