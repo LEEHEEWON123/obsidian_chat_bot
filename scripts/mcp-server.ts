@@ -6,7 +6,9 @@ import {
   axAssetQueryTool,
   axImageSearchTool,
 } from "../lib/ax-case/mcp-tools";
+import { getConfig } from "../lib/config";
 import { loadLocalEnv } from "../lib/env/load-local-env";
+import { exportFigmaNode, readFigmaStatus } from "../lib/figma/export-node";
 import { obsidianRagSearch, readVaultNote } from "../lib/mcp/vault-tools";
 import {
   cancelShareDraftTool,
@@ -26,6 +28,7 @@ const server = new McpServer(
       "Prefer few tool calls: one focused obsidian_rag_search is enough for most vault lookups; re-search at most once.",
       "Pass rootFolder (e.g. notion) or pathPrefix to limit search scope.",
       "Use read_vault_note only when snippets are insufficient (1–2 paths).",
+      "Figma links: use figma_export (writes React+Tailwind + snapshot). Use figma_status for last diff without re-fetch.",
       "AX interview case: ax_asset_query for CSV metrics/filters; ax_image_search for visual concepts. Do not also vault-search unless asked.",
       "Mixed AX requests: at most one ax_asset_query + one ax_image_search, then answer.",
       "To share via NAVER Works (DM or group room), call prepare_share — it sends immediately.",
@@ -91,6 +94,72 @@ server.registerTool(
   },
   async ({ path: notePath }) => {
     const result = await readVaultNote(notePath);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  "figma_export",
+  {
+    description:
+      "Export a Figma node (URL or fileKey+nodeId) to vault .figma-index: React+Tailwind .tsx, searchable .md, snapshot meta, and change diff. Skips rewrite when fingerprint unchanged. After export, user should run npm run index for Qdrant incremental upsert.",
+    inputSchema: {
+      url: z
+        .string()
+        .optional()
+        .describe("Figma design URL including node-id query param"),
+      fileKey: z.string().optional(),
+      nodeId: z.string().optional().describe("Node id like 1:2 or 1-2"),
+      force: z
+        .boolean()
+        .optional()
+        .describe("Rewrite artifacts even if fingerprint unchanged"),
+    },
+  },
+  async ({ url, fileKey, nodeId, force }) => {
+    const config = getConfig();
+    if (!config.vaultPath) {
+      throw new Error("VAULT_PATH is not set");
+    }
+    const result = await exportFigmaNode({
+      vaultPath: config.vaultPath,
+      indexDir: config.figmaIndexDir,
+      urlOrKey: url,
+      fileKey,
+      nodeId,
+      force,
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  "figma_status",
+  {
+    description:
+      "Read last Figma export snapshot/diff for a URL or fileKey+nodeId without calling Figma API.",
+    inputSchema: {
+      url: z.string().optional(),
+      fileKey: z.string().optional(),
+      nodeId: z.string().optional(),
+    },
+  },
+  async ({ url, fileKey, nodeId }) => {
+    const config = getConfig();
+    if (!config.vaultPath) {
+      throw new Error("VAULT_PATH is not set");
+    }
+    const result = await readFigmaStatus({
+      vaultPath: config.vaultPath,
+      indexDir: config.figmaIndexDir,
+      urlOrKey: url,
+      fileKey,
+      nodeId,
+    });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     };

@@ -27,6 +27,18 @@ Do not answer vault questions from memory alone when search tools are available.
 
 Do not use `terminal` to `find`, `grep`, or `ls` vault files when `obsidian_rag_search` can answer the question.
 
+## Figma (publish scaffold + change check)
+
+When the user pastes a Figma link or asks what changed in a frame:
+
+1. `figma_export` with the URL (writes `.figma-index/...` md + React/Tailwind tsx + snapshot).
+2. Summarize `change` from the tool result (created / unchanged / updated details).
+3. Point to the `.tsx` path for publishing starter code.
+4. Remind to run `npm run index` if export was not skipped (for Qdrant).
+5. For “last diff only” without re-fetch: `figma_status`.
+
+Do not curl Figma from `terminal` when these tools are available.
+
 ## Share via NAVER Works
 
 Use when the user asks to send / share a summary (e.g. "A씨에게 … 보내줘", "프론트 방에 … 보내줘").

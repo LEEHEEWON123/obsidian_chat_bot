@@ -10,6 +10,7 @@ export interface AppConfig {
   pdfHybridMode: string;
   docxInclude: string;
   docxIndexDir: string;
+  figmaIndexDir: string;
   topK: number;
   recallK: number;
   rerankEnabled: boolean;
@@ -36,12 +37,16 @@ function appendIndexDir(base: string, indexDir: string): string {
 export function getConfig(): AppConfig {
   const pdfIndexDir = process.env.PDF_INDEX_DIR ?? ".pdf-index";
   const docxIndexDir = process.env.DOCX_INDEX_DIR ?? ".docx-index";
+  const figmaIndexDir = process.env.FIGMA_INDEX_DIR ?? ".figma-index";
   let indexInclude = process.env.INDEX_INCLUDE ?? "**/*.md";
   if (process.env.PDF_INDEX_ENABLED !== "false") {
     indexInclude = appendIndexDir(indexInclude, pdfIndexDir);
   }
   if (process.env.DOCX_INDEX_ENABLED !== "false") {
     indexInclude = appendIndexDir(indexInclude, docxIndexDir);
+  }
+  if (process.env.FIGMA_INDEX_ENABLED !== "false") {
+    indexInclude = appendIndexDir(indexInclude, figmaIndexDir);
   }
 
   return {
@@ -56,6 +61,7 @@ export function getConfig(): AppConfig {
     pdfHybridMode: process.env.PDF_HYBRID_MODE ?? "full",
     docxInclude: process.env.DOCX_INCLUDE ?? "**/*.docx",
     docxIndexDir,
+    figmaIndexDir,
     topK: Number(process.env.RAG_TOP_K ?? 5),
     recallK: Number(process.env.RAG_RECALL_K ?? 50),
     rerankEnabled: process.env.RERANK_ENABLED !== "false",

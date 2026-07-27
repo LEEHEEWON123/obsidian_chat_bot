@@ -25,6 +25,7 @@
     "mcp": "tsx scripts/mcp-server.ts",
     "ax:clip-index": "tsx scripts/ax-clip-index-cli.ts",
     "ax:smoke": "tsx scripts/ax-case-smoke-cli.ts",
+    "figma:export": "tsx scripts/figma-export-cli.ts",
     "works:sync-people": "tsx scripts/sync-works-people.ts",
     "works:sync-room": "tsx scripts/sync-works-room.ts",
     "works:mail-auth": "tsx scripts/works-mail-auth.ts",

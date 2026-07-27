@@ -219,6 +219,8 @@ npm run hermes:chat     # web + terminal + mcp-obsidian_rag + session_search
 | `read_vault_note` | vault 상대 경로로 md **전문** 읽기 (요약용) |
 | `ax_asset_query` | AX 면접 케이스 CSV 조인 (성과 top-N, 브랜드/기간/심사 필터) |
 | `ax_image_search` | AX 썸네일 CLIP 텍스트→이미지 검색 (사용 장면 등) |
+| `figma_export` | Figma 링크/노드 → React+Tailwind + 스냅샷/diff sidecar |
+| `figma_status` | 마지막 Figma export 스냅샷/diff 조회 (API 호출 없음) |
 | `prepare_share` | 네이버웍스 공유 **즉시 전송** (DM/그룹방). `share-people.json` / `share-rooms.json`으로 수신 대상 해석 |
 | `confirm_share_draft` | (레거시) 초안 ID로 재전송. 보통 `prepare_share`만 사용 |
 | `cancel_share_draft` | 초안 취소 |
@@ -235,6 +237,40 @@ npm run ax:smoke        # 성과 top3
 ```
 
 Hermes는 성과/필터 → `ax_asset_query`, 비주얼 → `ax_image_search`를 씁니다 (`hermes/AGENTS.md`).
+
+#### Figma export (스냅샷 + React/Tailwind)
+
+온디맨드: Figma **링크/노드 ID** → REST로 노드를 가져와 vault sidecar를 쓰고, fingerprint가 같으면 **다시 쓰지 않음** → 기존 `npm run index` 증분이 자연스럽게 스킵됩니다.
+
+```bash
+# .env.local
+# FIGMA_ACCESS_TOKEN=figd_...
+# FIGMA_INDEX_DIR=.figma-index          # 기본
+# FIGMA_INDEX_ENABLED=true              # INDEX_INCLUDE에 .figma-index/**/*.md 자동 추가
+# FIGMA_EXPORT_IMAGES=true              # preview PNG
+# FIGMA_TREE_MAX_DEPTH=8                # 트리/tsx 펼침 깊이 (화면 1장 휴리스틱)
+
+npm run figma:export -- "https://www.figma.com/design/FILEKEY/Name?node-id=1-2"
+# 또는
+npm run figma:export -- --file FILEKEY --node 1:2
+npm run figma:export -- --file FILEKEY --node 1:2 --force   # fingerprint 같아도 재작성
+
+npm run index   # 변경된 .figma-index/**/*.md 만 Qdrant upsert
+```
+
+출력 (`{VAULT_PATH}/.figma-index/{fileKey}/`):
+
+| 파일 | 역할 |
+|------|------|
+| `{node}.md` | RAG 검색용 (구조 요약 + 변경 요약). `*.diff.md`는 인덱싱 제외 |
+| `{node}.tsx` | React + Tailwind 퍼블 스케폴드 (픽셀퍼펙트 아님) |
+| `{node}.meta.json` | fingerprint 스냅샷 |
+| `{node}.diff.md` | 이전 export 대비 변경 리포트 |
+| `{node}.preview.png` | 선택 미리보기 |
+
+Hermes: 링크 붙여 넣으면 `figma_export` / 마지막 diff만 보려면 `figma_status` (`hermes/AGENTS.md`).
+
+설계: [`docs/superpowers/specs/2026-07-27-figma-export-snapshot-design.md`](docs/superpowers/specs/2026-07-27-figma-export-snapshot-design.md)
 
 Hermes **과거 대화**는 별도 DB(`~/.hermes/state.db`)에 자동 저장되며, `session_search`로 검색합니다 (Qdrant/vault index와 무관).
 
@@ -275,6 +311,8 @@ MCP 서버만 단독 실행: `npm run mcp` (stdio, Hermes가 subprocess로 기�
 ├── notion/              # 회사 문서 md (INDEX_INCLUDE 대상)
 ├── *.pdf                # PDF 원본 (PDF_INCLUDE)
 ├── .pdf-index/          # pdf:export → 검색용 sidecar md
+├── .docx-index/         # docx:export → 검색용 sidecar md
+├── .figma-index/        # figma:export → md + tsx + snapshot
 ├── .company-rag/        # npm run sync-index → vectors.json, graph.json
 └── .obsidian/plugins/company-rag/   # Obsidian 플러그인
 ```
@@ -321,6 +359,11 @@ cp .env.example .env.local
 | `PDF_HYBRID_MODE` | 이미지 PDF OCR 모드 (기본 `full`) |
 | `DOCX_INCLUDE` | export 대상 DOCX glob (기본 `**/*.docx`) |
 | `DOCX_INDEX_DIR` | sidecar md 저장 폴더 (기본 `.docx-index`). `npm run index`에 자동 포함 |
+| `FIGMA_ACCESS_TOKEN` | Figma Personal Access Token (`figma:export` / MCP) |
+| `FIGMA_INDEX_DIR` | Figma sidecar 폴더 (기본 `.figma-index`). `npm run index`에 자동 포함 |
+| `FIGMA_INDEX_ENABLED` | `false`면 INDEX_INCLUDE에 `.figma-index` 미포함 |
+| `FIGMA_EXPORT_IMAGES` | preview PNG 저장 (기본 `true`) |
+| `FIGMA_TREE_MAX_DEPTH` | 트리/tsx 펼침 깊이 (기본 `8`) |
 
 ---
 
@@ -686,6 +729,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 | `npm run mcp` | Obsidian RAG MCP 서버 (stdio) |
 | `npm run ax:clip-index` | AX 케이스 썸네일 CLIP 인덱싱 |
 | `npm run ax:smoke` | AX CSV top3 / CLIP 검색 스모크 |
+| `npm run figma:export` | Figma 노드 → .figma-index (tsx/md/snapshot) |
 | `npm run hermes:setup` | Hermes `~/.hermes/config.yaml` 연동 |
 | `npm run hermes:gateway` | Hermes API server `:8642` |
 | `npm run hermes:dashboard` | Hermes dashboard `:9119` |

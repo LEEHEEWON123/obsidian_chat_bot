@@ -16,6 +16,7 @@ const IGNORED = [
   "**/build/**",
   "**/vendor/**",
   "**/libs/**",
+  "**/*.diff.md",
 ];
 
 export async function scanMarkdownFiles(
