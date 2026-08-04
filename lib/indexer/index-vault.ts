@@ -174,7 +174,7 @@ async function embedFileEntries(
     }
 
     const { sourcePdf, sourceDocx } = parseFrontmatter(raw);
-    const fileChunks = chunkMarkdown(relativePath, raw).map((chunk) => ({
+    const fileChunks = (await chunkMarkdown(relativePath, raw)).map((chunk) => ({
       ...chunk,
       path: sourcePdf ?? sourceDocx ?? chunk.path,
     }));

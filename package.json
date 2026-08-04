@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.18",
+    "@langchain/textsplitters": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@notionhq/client": "^5.22.0",
     "@opendataloader/pdf": "^2.4.7",

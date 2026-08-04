@@ -530,35 +530,32 @@ INDEX_INCLUDE=dobedub/**/*.md
 원본 .md
   → ① frontmatter 분리 + title 추출
   → ② 전처리 (cleanMarkdownForChunk)
-  → ③ # 헤딩 기준 섹션 분리
-  → ④ 섹션 본문이 800자 초과 시 overlap 120으로 분할
-  → ⑤ content/title 조립
-  → ⑥ content 임베딩 (1024차원)
+  → ③ LangChain RecursiveCharacterTextSplitter (문맥 우선 재귀 분할)
+  → ④ content/title 조립
+  → ⑤ content 임베딩 (1024차원)
   → Qdrant (vector + payload)
 ```
 
-구현: `lib/indexer/preprocess.ts` (전처리) · `lib/indexer/chunk.ts` (청킹)
+구현: `lib/indexer/preprocess.ts` (전처리) · `lib/indexer/chunk.ts` (청킹, `@langchain/textsplitters`)
 
 #### 규칙 요약
 
 | 규칙 | 값 |
 |------|-----|
 | 문서 제목 | frontmatter `title:` → 없으면 첫 `#` → 없으면 파일명 |
-| 섹션 분리 | `#`로 시작하는 줄 = 새 섹션 (`##`, `###` 포함) |
-| `#` 없는 본문 | 문서 제목을 섹션 제목으로 사용 |
-| 최대 청크 크기 | **800자** (섹션 **본문** 기준) |
-| 겹침 (overlap) | **120자** (800자 초과 섹션을 여러 청크로 자를 때만) |
-| 분할 방식 | 문단/문장이 아니라 **글자 수** 기준 기계적 슬라이스 |
+| 분할 방식 | **RecursiveCharacterTextSplitter** (헤딩 → 문단 → 줄 → 문장 → 공백) |
+| separator 우선순위 | `\n# ` … `\n###### ` → `\n\n` → `\n` → `. ` → ` ` → `""` |
+| 최대 청크 크기 | **800자** |
+| 겹침 (overlap) | **120자** |
 | 임베딩 대상 | payload **`content`** 전체 (`Xenova/bge-m3`, 1024차원) |
-| 청크 `content` | `# 문서제목`(섹션과 다를 때) + `# 섹션제목` + 본문 조각 |
-| payload `title` | `문서제목 — 섹션제목` (같으면 섹션만) |
+| 청크 `content` | `# 문서제목`(필요할 때) + 분할된 본문 |
+| payload `title` | `문서제목 — 청크 내 첫 헤딩` (같으면 헤딩만) |
 | 전처리 후 본문 없음 | 해당 파일 **청크 0개** (인덱스에서 스킵) |
-| 섹션 ≤ 800자 | **청크 1개** (이웃 overlap 없음) |
-| 토큰 기준 | ❌ **문자 수** (`String.length`) 기준, 토큰 아님 |
+| 토큰 기준 | ❌ **문자 수** (`chunkSize`/`chunkOverlap`) 기준, 토큰 아님 |
 
 #### 이웃 청크 (overlap)
 
-800자 초과 **같은 섹션 안**에서만 여러 청크가 생깁니다. **120은 두 번째로 자르는 크기가 아니라**, 바로 이웃한 청크끼리 **겹치는 글자 수**입니다.
+Recursive splitter가 800자를 넘는 구간을 자를 때 **120자 overlap**을 둡니다.
 
 ```
 chunk 1: [0 ──────────── 800]
@@ -569,10 +566,7 @@ chunk 2:        [680 ──────────── 1480]
 
 - **800** = 청크 최대 길이
 - **120** = 이웃 청크가 공유하는 구간 (경계에서 문맥 끊김 완화)
-- 다음 청크 시작 위치 = `이전 끝 - 120` (stride ≈ 680자)
-- `#` 헤딩으로 나뉜 **다른 섹션** 사이에는 overlap 없음
-
-대부분 섹션은 800자 이하라 청크 1개입니다. 긴 Notion export·매뉴얼처럼 헤딩 없이 긴 본문만 여러 청크로 쪼개집니다. 분할은 문단/문장 경계가 아니라 **고정 글자 슬라이스**입니다 (Recursive Character Splitting은 미적용).
+- 가능한 한 헤딩/문단/문장 경계에서 자르고, 불가피할 때만 공백·문자 단위로 하강
 
 구현 상수: `lib/indexer/chunk.ts` — `CHUNK_SIZE=800`, `CHUNK_OVERLAP=120` (env 없음).
 
@@ -596,7 +590,7 @@ chunk 2:        [680 ──────────── 1480]
 
 | 섹션 | 내용 | 결과 |
 |------|------|------|
-| (제목 섹션) | `[플랫폼본부]`, 푸딩툰 65%, 픽미툰… | **본문 청크** (길면 800자 단위로 여러 개) |
+| (제목 섹션) | `[플랫폼본부]`, 푸딩툰 65%, 픽미툰… | **본문 청크** (Recursive splitter, 최대 800자) |
 | `# 구분` | `정기` | 짧은 메타 청크 |
 | `# 이름` | `11월 10일 정기미팅` | 짧은 메타 청크 |
 
@@ -683,7 +677,7 @@ Obsidian → Community plugins → **Company RAG** ON → 리본 🔍
 
 | 단계 | 구현 | 모델 / 저장 |
 |------|------|-------------|
-| Chunking | `lib/indexer/chunk.ts`, `preprocess.ts` | 전처리 → `#` 섹션 → 800자/overlap 120 → `content` 임베딩 |
+| Chunking | `lib/indexer/chunk.ts`, `preprocess.ts` | 전처리 → RecursiveCharacterTextSplitter(800/120) → `content` 임베딩 |
 | Embedding | `lib/embeddings/local.ts` | **[Xenova/bge-m3](https://huggingface.co/Xenova/bge-m3)** · **1024차원** · `@xenova/transformers` bi-encoder (`EMBEDDING_MODEL`) |
 | 1차 Hybrid | `lib/vector-store/store.ts` · `lib/sparse/bm25-text.ts` | dense cosine + Qdrant BM25 sparse → **RRF** `RAG_RECALL_K` |
 | 2차 Rerank | `lib/rerank/local.ts` | **`BAAI/bge-reranker-v2-m3`** cross-encoder · `RERANK_MIN_SCORE` 미만 제외 |

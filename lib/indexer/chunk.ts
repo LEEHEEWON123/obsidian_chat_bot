@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 import {
   cleanMarkdownForChunk,
@@ -18,6 +19,28 @@ export interface DocumentChunk {
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 120;
 
+/** LangChain RecursiveCharacterTextSplitter — markdown-aware separator priority. */
+const RECURSIVE_SEPARATORS = [
+  "\n# ",
+  "\n## ",
+  "\n### ",
+  "\n#### ",
+  "\n##### ",
+  "\n###### ",
+  "\n\n",
+  "\n",
+  ". ",
+  " ",
+  "",
+];
+
+const splitter = new RecursiveCharacterTextSplitter({
+  chunkSize: CHUNK_SIZE,
+  chunkOverlap: CHUNK_OVERLAP,
+  separators: RECURSIVE_SEPARATORS,
+  keepSeparator: true,
+});
+
 function chunkId(path: string, index: number, content: string): string {
   return createHash("sha256")
     .update(`${path}:${index}:${content.slice(0, 64)}`)
@@ -25,51 +48,53 @@ function chunkId(path: string, index: number, content: string): string {
     .slice(0, 16);
 }
 
-function splitBySize(text: string): string[] {
-  const parts: string[] = [];
-  let start = 0;
-
-  while (start < text.length) {
-    const end = Math.min(start + CHUNK_SIZE, text.length);
-    parts.push(text.slice(start, end).trim());
-    if (end >= text.length) break;
-    start = Math.max(end - CHUNK_OVERLAP, start + 1);
-  }
-
-  return parts.filter(Boolean);
+function pageNumberFromText(text: string): number | undefined {
+  const match = text.match(/(?:^|\n)#+\s*Page\s+(\d+)\b/i);
+  if (!match) return undefined;
+  const page = Number(match[1]);
+  return Number.isFinite(page) && page > 0 ? page : undefined;
 }
 
-function buildChunkContent(options: {
-  documentTitle: string;
-  sectionHeading: string;
-  piece: string;
-}): string {
-  const { documentTitle, sectionHeading, piece } = options;
+function headingFromText(text: string, fallback: string): string {
+  const match = text.match(/^#+\s+(.+)$/m);
+  const heading = match?.[1]?.trim();
+  return heading || fallback;
+}
+
+function lineNumberAtOffset(text: string, offset: number, baseLine: number): number {
+  if (offset <= 0) return baseLine;
+  const slice = text.slice(0, Math.min(offset, text.length));
+  return baseLine + slice.split("\n").length - 1;
+}
+
+function buildChunkContent(documentTitle: string, piece: string): string {
+  const sectionHeading = headingFromText(piece, documentTitle);
   const parts: string[] = [];
 
   if (documentTitle && documentTitle !== sectionHeading) {
     parts.push(`# ${documentTitle}`);
   }
-  parts.push(`# ${sectionHeading}`, "", piece);
+  if (!piece.trimStart().startsWith("#")) {
+    parts.push(`# ${sectionHeading}`, "", piece);
+  } else {
+    parts.push(piece);
+  }
 
   return parts.join("\n").trim();
 }
 
-function chunkTitle(documentTitle: string, sectionHeading: string): string {
+function chunkTitle(documentTitle: string, piece: string): string {
+  const sectionHeading = headingFromText(piece, documentTitle);
   if (!documentTitle || documentTitle === sectionHeading) {
     return sectionHeading;
   }
   return `${documentTitle} — ${sectionHeading}`;
 }
 
-function pageNumberFromHeading(heading: string): number | undefined {
-  const match = heading.match(/^Page\s+(\d+)$/i);
-  if (!match) return undefined;
-  const page = Number(match[1]);
-  return Number.isFinite(page) && page > 0 ? page : undefined;
-}
-
-export function chunkMarkdown(relativePath: string, raw: string): DocumentChunk[] {
+export async function chunkMarkdown(
+  relativePath: string,
+  raw: string,
+): Promise<DocumentChunk[]> {
   const { body: rawBody, documentTitle: frontmatterTitle, bodyStartLine } =
     parseFrontmatter(raw);
   const body = cleanMarkdownForChunk(rawBody);
@@ -82,67 +107,30 @@ export function chunkMarkdown(relativePath: string, raw: string): DocumentChunk[
     relativePath;
   const documentTitle = frontmatterTitle ?? fallbackTitle;
 
-  const sections: { heading: string; body: string; startLine: number }[] = [];
-  let currentHeading = documentTitle;
-  let currentBody: string[] = [];
-  let sectionStart = bodyStartLine;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith("#")) {
-      if (currentBody.length > 0) {
-        const sectionBody = cleanMarkdownForChunk(currentBody.join("\n"));
-        if (sectionBody) {
-          sections.push({
-            heading: currentHeading,
-            body: sectionBody,
-            startLine: sectionStart,
-          });
-        }
-      }
-      currentHeading = line.replace(/^#+\s+/, "").trim() || documentTitle;
-      currentBody = [];
-      sectionStart = i + bodyStartLine;
-      continue;
-    }
-    currentBody.push(line);
-  }
-
-  if (currentBody.length > 0) {
-    const sectionBody = cleanMarkdownForChunk(currentBody.join("\n"));
-    if (sectionBody) {
-      sections.push({
-        heading: currentHeading,
-        body: sectionBody,
-        startLine: sectionStart,
-      });
-    }
-  }
-
+  const pieces = await splitter.splitText(body);
   const chunks: DocumentChunk[] = [];
+  let searchFrom = 0;
 
-  for (const section of sections) {
-    const pieces =
-      section.body.length > CHUNK_SIZE
-        ? splitBySize(section.body)
-        : [section.body];
+  pieces.forEach((piece, index) => {
+    const trimmed = piece.trim();
+    if (!trimmed) return;
 
-    pieces.forEach((piece, index) => {
-      const content = buildChunkContent({
-        documentTitle,
-        sectionHeading: section.heading,
-        piece,
-      });
-      chunks.push({
-        id: chunkId(relativePath, index, content),
-        path: relativePath,
-        title: chunkTitle(documentTitle, section.heading),
-        content,
-        startLine: section.startLine,
-        pageNumber: pageNumberFromHeading(section.heading),
-      });
+    const offset = body.indexOf(piece, searchFrom);
+    const startOffset = offset >= 0 ? offset : searchFrom;
+    if (offset >= 0) {
+      searchFrom = offset + Math.max(piece.length - CHUNK_OVERLAP, 1);
+    }
+
+    const content = buildChunkContent(documentTitle, trimmed);
+    chunks.push({
+      id: chunkId(relativePath, index, content),
+      path: relativePath,
+      title: chunkTitle(documentTitle, trimmed),
+      content,
+      startLine: lineNumberAtOffset(body, startOffset, bodyStartLine),
+      pageNumber: pageNumberFromText(trimmed),
     });
-  }
+  });
 
   return chunks;
 }

@@ -73,7 +73,11 @@ If `ax_image_search` fails with missing index, tell the user to run `npm run ax:
 - Use `web_search` / `web_extract` for public docs, release notes, or facts not in the index.
 - Use `terminal` only for read-only checks the user asked for (e.g. index health, Qdrant status). Prefer project-relative commands.
 
+## Memory
+
+Read `$HERMES_HOME/MEMORY.md` for sticky preferences (language, tool routing, pathPrefix). Do not dump company documents into memory — use vault RAG for that.
+
 ## Out of scope for this profile
 
-Do not use memory, skills, or cron unless the user explicitly enables them later.
+Do not use skills or cron unless the user explicitly enables them later.
 # messaging: NAVER Works share via MCP prepare_share (immediate send, DM + group rooms).
