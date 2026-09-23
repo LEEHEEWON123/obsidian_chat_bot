@@ -1,23 +1,19 @@
 # Obsidian Chat Bot
 
-Obsidian vault(`.md`)을 **hybrid 검색(dense + BM25 → RRF) + rerank**로 인덱싱하고, Hermes Workspace / Obsidian 플러그인 / MCP로 질의합니다.
+Obsidian vault(`.md`)을 **hybrid 검색(dense + BM25 → RRF) + rerank**로 인덱싱하고, **Hermes Workspace + MCP**로 질의합니다.
 
-벡터 저장: **Qdrant** (Docker). 임베딩: **Xenova/bge-m3** (1024d).
+벡터 저장: **Qdrant** (Docker). 임베딩: **Xenova/bge-m3** (1024d).  
+채팅 UI / LLM 오케스트레이션은 Hermes. 이 레포는 **인덱싱 · Qdrant · MCP**만 담당합니다. (Next.js 웹서버 없음)
 
 ## 구조
-
-채팅 UI는 **Hermes Workspace만**. Next 채팅(`/api/chat`, ChatPanel, Cursor SDK)은 제거됨.  
-남은 `npm run dev`(:3001)은 Obsidian 플러그인용 **검색 API만** (채팅 아님).
 
 | 구성 | 역할 | 포트 |
 |---|---|---|
 | Qdrant | 벡터 DB | `:6333` |
-| Search API | `POST /api/search` · `/api/health` (Obsidian용, Next 라우트) | `:3001` |
-| Hermes gateway | 에이전트 + MCP | `:8642` |
-| Hermes Workspace | 메인 채팅 UI | `:3000` |
-| Company RAG 플러그인 | Obsidian 사이드바 검색 | — |
-
-인덱싱은 CLI(`npm run index`). 검색 시 vault md를 다시 읽지 않고 Qdrant(또는 offline `.company-rag/`)에서 청크를 꺼냅니다.
+| MCP `obsidian_rag` | hybrid 검색 · vault 노트 읽기 | stdio |
+| Hermes gateway | 에이전트 + MCP 호출 | `:8642` |
+| Hermes Workspace | 채팅 UI | `:3000` |
+| Company RAG 플러그인 | Obsidian 사이드바 (offline `.company-rag/`만) | — |
 
 ## 빠른 시작
 
@@ -28,18 +24,15 @@ npm run qdrant:up
 npm run index                # 증분 (전체: npm run index -- --full)
 npm run sync-index           # Obsidian offline용 .company-rag/ 스냅샷
 
-# 채팅 UI (Hermes)
-npm run hermes:setup         # 최초 1회
+npm run hermes:setup         # 최초 1회 — MCP 등록
 npm run workspace:setup      # 최초 1회
 npm run hermes:gateway       # :8642
 npm run hermes:dashboard     # :9119
-npm run workspace:dev        # :3000
-
-# Obsidian 플러그인용 검색 API만 (채팅 UI 아님)
-npm run dev                  # :3001  → POST /api/search
+npm run workspace:dev        # :3000  ← 여기서 채팅
+# 또는: npm run start:all
 ```
 
-상세 Hermes 연동: [`hermes/WORKSPACE.md`](hermes/WORKSPACE.md)
+상세: [`hermes/WORKSPACE.md`](hermes/WORKSPACE.md)
 
 ## 인덱싱 / export
 
@@ -50,7 +43,7 @@ npm run dev                  # :3001  → POST /api/search
 | `npm run pdf:export` | PDF → `.pdf-index/**/*.md` (Java 11+) |
 | `npm run docx:export` | DOCX → `.docx-index/**/*.md` (Python venv) |
 | `npm run figma:export` | Figma 노드 → `.figma-index/` |
-| `npm run mcp` | MCP 서버 (stdio) |
+| `npm run mcp` | MCP 서버 (stdio, Hermes가 subprocess로 기동) |
 
 청킹: RecursiveCharacterTextSplitter **800 / overlap 120** (`lib/indexer/chunk.ts`).
 
@@ -73,20 +66,13 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  U[유저 질문] --> OBS[Obsidian 플러그인]
-  U --> WEB[Hermes Workspace :3000]
-
-  OBS --> API{Search API :3001}
-  API -->|online| S[POST /api/search]
-  API -->|offline| OFF[.company-rag keyword + graph]
-
+  U[유저 질문] --> WEB[Hermes Workspace :3000]
   WEB --> GW[Hermes gateway :8642]
   GW --> MCP[MCP obsidian_rag]
-  MCP --> S2[obsidian_rag_search]
+  MCP --> S[obsidian_rag_search]
+  MCP --> R[read_vault_note]
 
   S --> H
-  S2 --> H
-
   subgraph H[hybrid + rerank]
     D[dense bge-m3] --> RRF[RRF]
     B[BM25 sparse] --> RRF
@@ -94,16 +80,19 @@ flowchart TD
   end
 
   H --> Q[(Qdrant)]
-  Q --> OUT[청크 → UI / 에이전트 답변]
-  OFF --> OUT
+  R --> V[vault md]
+  Q --> OUT[에이전트 답변]
+  V --> OUT
 ```
 
-## Obsidian 플러그인
+## Obsidian 플러그인 (offline)
+
+시맨틱 API 서버 없음. `npm run sync-index`로 `.company-rag/`를 채운 뒤 **로컬 키워드 + 그래프**만 사용합니다.
 
 ```bash
 cd obsidian-plugin && npm install && npm run build
 # vault .obsidian/plugins/company-rag 로 링크 후 활성화
-npm run sync-index && npm run dev
+npm run sync-index
 ```
 
 ## 주요 env

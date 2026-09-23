@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf, requestUrl } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 
 import type CompanyRagPlugin from "../main";
 import { parseGraph, type GraphFile } from "../rag/graph";
@@ -41,7 +41,7 @@ export class LookupView extends ItemView {
     containerEl.addClass("company-rag-root");
 
     const header = containerEl.createDiv({ cls: "company-rag-header" });
-    header.createEl("h4", { text: "시멘틱 + 그래프 검색" });
+    header.createEl("h4", { text: "로컬 키워드 + 그래프 검색" });
 
     this.statusEl = containerEl.createDiv({ cls: "company-rag-status" });
     this.statusEl.setText("인덱스 로딩 중...");
@@ -123,36 +123,16 @@ export class LookupView extends ItemView {
 
   private async searchSemantic(query: string): Promise<SearchResult[]> {
     const topK = this.plugin.settings.topK;
-    const baseUrl = this.plugin.settings.apiBaseUrl.replace(/\/$/, "");
-
-    try {
-      const response = await requestUrl({
-        url: `${baseUrl}/api/search`,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, topK }),
-        throw: false,
-      });
-
-      if (response.status >= 200 && response.status < 300) {
-        const data = response.json as { results?: SearchResult[] };
-        if (Array.isArray(data.results) && data.results.length > 0) {
-          return data.results;
-        }
-      }
-    } catch {
-      // fall through to local
-    }
 
     if (!this.store) {
       throw new Error(
-        "API 연결 실패 + 로컬 인덱스 없음. npm run dev 및 npm run sync-index 확인",
+        "로컬 인덱스 없음. npm run sync-index 로 .company-rag/ 를 채우세요",
       );
     }
 
     let local = searchLocalStore({ query, store: this.store, topK });
     if (local.length === 0) {
-      throw new Error("로컬 키워드 검색 결과 없음. npm run dev 로 시멘틱 검색 사용");
+      throw new Error("로컬 키워드 검색 결과 없음");
     }
 
     if (this.graph) {
@@ -164,7 +144,6 @@ export class LookupView extends ItemView {
       });
     }
 
-    new Notice("API offline — 로컬 검색 + 그래프 확장");
     return local;
   }
 

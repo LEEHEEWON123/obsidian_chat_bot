@@ -66,9 +66,7 @@ npm run workspace:dev     # :3000 ← 여기서 채팅
 
 Hermes가 vault 검색할 때 `AGENTS.md` + MCP `pathPrefix`/`rootFolder`로 스코프합니다.
 
-## Search API (:3001)
-
-`npm run dev` → Obsidian 플러그인용 `/api/search` · `/api/health`만. 채팅 UI는 Workspace(:3000). Next 채팅(`/api/chat`)은 제거됨.
+Obsidian Company RAG 플러그인은 **offline** (`.company-rag/` 키워드)만 사용합니다. Next/검색 HTTP API는 없습니다.
 
 ## 연결 확인
 

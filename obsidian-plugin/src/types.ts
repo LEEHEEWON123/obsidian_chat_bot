@@ -28,13 +28,11 @@ export interface SearchResult {
 }
 
 export interface CompanyRagSettings {
-  apiBaseUrl: string;
   topK: number;
   indexFolder: string;
 }
 
 export const DEFAULT_SETTINGS: CompanyRagSettings = {
-  apiBaseUrl: "http://localhost:3000",
   topK: 8,
   indexFolder: ".company-rag",
 };

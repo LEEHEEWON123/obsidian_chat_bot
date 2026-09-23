@@ -14,21 +14,8 @@ export class CompanyRagSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "Company RAG" });
 
     new Setting(containerEl)
-      .setName("API base URL")
-      .setDesc("Semantic search server (npm run dev). Offline = local keyword fallback.")
-      .addText((text) =>
-        text
-          .setPlaceholder("http://localhost:3000")
-          .setValue(this.plugin.settings.apiBaseUrl)
-          .onChange(async (value) => {
-            this.plugin.settings.apiBaseUrl = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-
-    new Setting(containerEl)
       .setName("Top K results")
-      .setDesc("Maximum search results to show")
+      .setDesc("Maximum local keyword search results")
       .addText((text) =>
         text
           .setPlaceholder("8")
@@ -42,7 +29,7 @@ export class CompanyRagSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Index folder")
-      .setDesc("Vault folder with vectors.json (npm run sync-index)")
+      .setDesc("Vault folder with vectors.json (npm run sync-index). Offline keyword search only.")
       .addText((text) =>
         text
           .setPlaceholder(".company-rag")
