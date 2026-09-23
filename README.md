@@ -6,10 +6,13 @@ Obsidian vault(`.md`)을 **hybrid 검색(dense + BM25 → RRF) + rerank**로 인
 
 ## 구조
 
+채팅 UI는 **Hermes Workspace만**. Next 채팅(`/api/chat`, ChatPanel, Cursor SDK)은 제거됨.  
+남은 `npm run dev`(:3001)은 Obsidian 플러그인용 **검색 API만** (채팅 아님).
+
 | 구성 | 역할 | 포트 |
 |---|---|---|
 | Qdrant | 벡터 DB | `:6333` |
-| Next.js API | `/api/search` (Obsidian 플러그인) · `/api/health` | `:3001` |
+| Search API | `POST /api/search` · `/api/health` (Obsidian용, Next 라우트) | `:3001` |
 | Hermes gateway | 에이전트 + MCP | `:8642` |
 | Hermes Workspace | 메인 채팅 UI | `:3000` |
 | Company RAG 플러그인 | Obsidian 사이드바 검색 | — |
@@ -32,7 +35,7 @@ npm run hermes:gateway       # :8642
 npm run hermes:dashboard     # :9119
 npm run workspace:dev        # :3000
 
-# Obsidian 플러그인용 검색 API
+# Obsidian 플러그인용 검색 API만 (채팅 UI 아님)
 npm run dev                  # :3001  → POST /api/search
 ```
 
@@ -73,7 +76,7 @@ flowchart TD
   U[유저 질문] --> OBS[Obsidian 플러그인]
   U --> WEB[Hermes Workspace :3000]
 
-  OBS --> API{Next :3001}
+  OBS --> API{Search API :3001}
   API -->|online| S[POST /api/search]
   API -->|offline| OFF[.company-rag keyword + graph]
 
