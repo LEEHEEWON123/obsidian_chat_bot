@@ -51,11 +51,49 @@ npm run dev                  # :3001  → POST /api/search
 
 청킹: RecursiveCharacterTextSplitter **800 / overlap 120** (`lib/indexer/chunk.ts`).
 
-## 검색 파이프라인
+## 실행 파이프라인
 
-1. **Hybrid recall** — dense(bge-m3) + BM25 sparse → RRF (`RAG_RECALL_K`)
-2. **Rerank** — bge-reranker-v2-m3 (`RERANK_ENABLED`, 기본 환경에 따름)
-3. 결과 → Obsidian UI / Hermes MCP (`obsidian_rag_search`, `read_vault_note`)
+### 1. 인덱싱 (사전)
+
+```mermaid
+flowchart LR
+  V[Vault md / PDF / DOCX / Figma] --> X[export sidecar]
+  X --> I[npm run index]
+  I --> C[chunk 800/120]
+  C --> E[bge-m3 embed]
+  E --> Q[(Qdrant dense + BM25)]
+  Q --> S[npm run sync-index]
+  S --> O[.company-rag offline]
+```
+
+### 2. 질의 (런타임)
+
+```mermaid
+flowchart TD
+  U[유저 질문] --> OBS[Obsidian 플러그인]
+  U --> WEB[Hermes Workspace :3000]
+
+  OBS --> API{Next :3001}
+  API -->|online| S[POST /api/search]
+  API -->|offline| OFF[.company-rag keyword + graph]
+
+  WEB --> GW[Hermes gateway :8642]
+  GW --> MCP[MCP obsidian_rag]
+  MCP --> S2[obsidian_rag_search]
+
+  S --> H
+  S2 --> H
+
+  subgraph H[hybrid + rerank]
+    D[dense bge-m3] --> RRF[RRF]
+    B[BM25 sparse] --> RRF
+    RRF --> RR[rerank · top-K]
+  end
+
+  H --> Q[(Qdrant)]
+  Q --> OUT[청크 → UI / 에이전트 답변]
+  OFF --> OUT
+```
 
 ## Obsidian 플러그인
 
