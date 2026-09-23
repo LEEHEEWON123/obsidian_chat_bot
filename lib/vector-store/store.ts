@@ -427,52 +427,6 @@ export class VectorStore {
     return chunks;
   }
 
-  /** All chunks from pages that match any of the given ISO dates (title or body). */
-  async findChunksForDates(dates: string[]): Promise<IndexedChunk[]> {
-    if (dates.length === 0 || this.meta.chunkCount === 0) return [];
-
-    const all = await this.scrollPayloadOnly();
-    const matches = all.filter((chunk) =>
-      dates.some((date) => chunk.title.includes(date) || chunk.content.includes(date)),
-    );
-    if (matches.length === 0) return [];
-
-    const paths = new Set(matches.map((chunk) => chunk.path));
-    return all
-      .filter((chunk) => paths.has(chunk.path))
-      .map((chunk) => ({ ...chunk, embedding: [] as number[] }))
-      .sort(
-        (a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine,
-      );
-  }
-
-  private async scrollPayloadOnly(): Promise<IndexedChunk[]> {
-    const client = this.client();
-    const chunks: IndexedChunk[] = [];
-    let offset: string | number | undefined;
-
-    while (true) {
-      const response = await client.scroll(this.collection, {
-        limit: SCROLL_BATCH,
-        offset,
-        with_payload: true,
-        with_vector: false,
-      });
-
-      for (const point of response.points) {
-        const payload = point.payload as ChunkPayload | null | undefined;
-        if (!payload) continue;
-        chunks.push({ ...payload, embedding: [] });
-      }
-
-      if (response.points.length < SCROLL_BATCH) break;
-      offset = normalizeScrollOffset(response.next_page_offset);
-      if (offset === undefined) break;
-    }
-
-    return chunks;
-  }
-
   /** Export snapshot for Obsidian plugin offline mode. */
   async exportSnapshot(): Promise<{ meta: StoreMeta; chunks: IndexedChunk[] }> {
     const chunks = await this.getAllChunks();

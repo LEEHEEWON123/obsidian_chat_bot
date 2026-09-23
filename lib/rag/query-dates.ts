@@ -11,3 +11,14 @@ export function extractDatesFromQuery(query: string): string[] {
 
   return [...dates];
 }
+
+/** True when title/body contains any normalized ISO date from the query. */
+export function chunkMatchesDates(
+  chunk: { title: string; content: string },
+  dates: string[],
+): boolean {
+  if (dates.length === 0) return false;
+  return dates.some(
+    (date) => chunk.title.includes(date) || chunk.content.includes(date),
+  );
+}

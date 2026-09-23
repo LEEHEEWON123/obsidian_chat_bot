@@ -41,27 +41,28 @@ export function searchLocalStore(options: {
   const { query, store, topK } = options;
   const dates = extractDatesFromQuery(query);
 
-  let candidates = store.chunks;
-
-  if (dates.length > 0) {
-    const matches = store.chunks.filter((chunk) =>
-      dates.some((date) => chunk.title.includes(date) || chunk.content.includes(date)),
-    );
-    if (matches.length > 0) {
-      const paths = new Set(matches.map((chunk) => chunk.path));
-      candidates = store.chunks.filter((chunk) => paths.has(chunk.path));
-    }
-  }
-
-  return candidates
-    .map((chunk) => ({
-      id: chunk.id,
-      path: chunk.path,
-      title: chunk.title,
-      content: chunk.content.slice(0, 400),
-      startLine: chunk.startLine,
-      score: keywordScore(query, `${chunk.title}\n${chunk.content}`),
-    }))
+  // Score the full corpus; dates boost matching chunks instead of dumping
+  // every chunk from any date-matching file.
+  return store.chunks
+    .map((chunk) => {
+      let score = keywordScore(query, `${chunk.title}\n${chunk.content}`);
+      if (
+        dates.length > 0 &&
+        dates.some(
+          (date) => chunk.title.includes(date) || chunk.content.includes(date),
+        )
+      ) {
+        score = Math.min(1, score + 0.35);
+      }
+      return {
+        id: chunk.id,
+        path: chunk.path,
+        title: chunk.title,
+        content: chunk.content.slice(0, 400),
+        startLine: chunk.startLine,
+        score,
+      };
+    })
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
