@@ -1,7 +1,5 @@
 export interface AppConfig {
   vaultPath: string;
-  cursorApiKey: string;
-  cursorModel: string;
   indexInclude: string;
   pdfInclude: string;
   pdfIndexDir: string;
@@ -51,8 +49,6 @@ export function getConfig(): AppConfig {
 
   return {
     vaultPath: process.env.VAULT_PATH ?? "",
-    cursorApiKey: process.env.CURSOR_API_KEY ?? "",
-    cursorModel: process.env.CURSOR_MODEL ?? "composer-2.5",
     indexInclude,
     pdfInclude: process.env.PDF_INCLUDE ?? "**/*.pdf",
     pdfIndexDir,
@@ -80,8 +76,5 @@ export function getConfig(): AppConfig {
 export function assertConfig(config: AppConfig): void {
   if (!config.vaultPath) {
     throw new Error("VAULT_PATH is not set");
-  }
-  if (!config.cursorApiKey) {
-    throw new Error("CURSOR_API_KEY is not set");
   }
 }
