@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Obsidian Chat Bot",
-  description: "Obsidian vault RAG chatbot powered by Cursor SDK",
+  description: "Obsidian vault hybrid RAG search API",
 };
 
 export default function RootLayout({

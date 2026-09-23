@@ -24,7 +24,6 @@ export async function GET() {
     return NextResponse.json({
       status: qdrantStatus === "ok" ? "ok" : "degraded",
       vaultPathConfigured: Boolean(config.vaultPath),
-      cursorApiKeyConfigured: Boolean(config.cursorApiKey),
       qdrantUrl: config.qdrantUrl,
       qdrantCollection: config.qdrantCollection,
       qdrantStatus,

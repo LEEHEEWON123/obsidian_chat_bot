@@ -66,9 +66,9 @@ npm run workspace:dev     # :3000 ← 여기서 채팅
 
 Hermes가 vault 검색할 때 `AGENTS.md` + MCP `pathPrefix`/`rootFolder`로 스코프합니다.
 
-## 구 UI (Next.js ChatPanel)
+## Next.js API (:3001)
 
-`npm run dev` → **:3001** (Cursor SDK 1-shot RAG). Workspace(:3000)가 메인 UI입니다.
+`npm run dev` → Obsidian 플러그인용 `/api/search` · `/api/health` 만 제공. 채팅 UI는 Workspace(:3000).
 
 ## 연결 확인
 
